@@ -129,7 +129,7 @@ func main() {
 	fmt.Println("---- InputDevices ----")
 	indev := api.InputDevices()
 	for _, d := range indev {
-		fmt.Printf("%s\n", d.ToString())
+		fmt.Printf("%s\n", d)
 	}
 	fmt.Println("----------------------")
 
@@ -137,7 +137,7 @@ func main() {
 	fmt.Println("---- OutputDevices ----")
 	outdev := api.OutputDevices()
 	for _, d := range outdev {
-		fmt.Printf("%s\n", d.ToString())
+		fmt.Printf("%s\n", d)
 	}
 	fmt.Println("-----------------------")
 
