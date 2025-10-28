@@ -157,7 +157,7 @@ func (api *RtAudioApi) InitOutputDeviceFromID(ioDevice AudioIODevice) (audiodevi
 	}
 
 	for _, d := range devices {
-		fmt.Println(d.ToString())
+		fmt.Println(d)
 	}
 
 	var currentDevice *rtaudiowrapper.DeviceInfo
