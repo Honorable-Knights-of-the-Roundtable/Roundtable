@@ -94,6 +94,7 @@ func main() {
 	// --------------------------------------------------------------------------------
 
 	connectionManager := initializeConnectionManager(localPeerIdentifier)
+	_ = connectionManager
 
 	// Keep process alive for pings to pass
 	select {}

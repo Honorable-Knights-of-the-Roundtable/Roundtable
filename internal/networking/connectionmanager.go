@@ -182,6 +182,7 @@ func (manager *ConnectionManager) listenForSessionOffers(w http.ResponseWriter, 
 	// Decode the offer
 
 	// TODO: Likely a security risk to read the body... what if the body is very large?
+	// 	      Is there a max size this could conceivably be?
 	requestBody, err := io.ReadAll(r.Body)
 	if err != nil {
 		requestLogger.Error(

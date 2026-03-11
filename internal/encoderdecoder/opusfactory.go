@@ -26,6 +26,8 @@ type OpusFactory struct {
 // but more robust encoding and decoding, especially when working in highly parallelized, high
 // throughput environments.
 // For very small frameDurations, consider raising the safety factor.
+// TODO:(JAKE) Why not just make the frameDuration parameter a OPUSFrameDuration
+//              or can you not do that in Go?
 func NewOpusFactory(
 	frameDuration time.Duration,
 	bufferSafetyFactor int,
