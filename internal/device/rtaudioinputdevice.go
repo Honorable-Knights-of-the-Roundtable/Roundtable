@@ -103,10 +103,12 @@ func NewRtAudioInputDevice(
 		copy(pcmFrame, inputData)
 		dataChannel <- pcmFrame
 
-		// Check for input overflow
-		if status&rtaudiowrapper.StatusInputOverflow != 0 {
-			logger.Warn("input overflow detected")
-		}
+		// TODO: (JAKE) So this keeps happening, but I'm unsure what to do about it, the log pollutes the repl
+		// so not reporting for now
+		//Check for input overflow
+		// if status&rtaudiowrapper.StatusInputOverflow != 0 {
+		// 	logger.Warn("input overflow detected")
+		// }
 
 		return 0
 	}

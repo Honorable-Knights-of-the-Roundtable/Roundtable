@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
+	// "log/slog"
 	"sync"
 	"time"
 
@@ -225,7 +225,7 @@ func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	app.inputAugmentationDevice = inputAugmentationDevice
 	app.inputFanOutDevice = &inputFanOutDevice
 
-	slog.Debug("updated set input device", "new properties", app.audioInputDevice.GetDeviceProperties())
+	// slog.Debug("updated set input device", "new properties", app.audioInputDevice.GetDeviceProperties())
 }
 
 func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
@@ -270,7 +270,7 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 	app.outputFanInDevice = outputFanInDevice
 	app.audioOutputDevice = outputDevice
 
-	slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
+	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
 
 // Taking the remote peer information as a Base64-encoded JSON-representation of the signalling.PeerIdentifier
