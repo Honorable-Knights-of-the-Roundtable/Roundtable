@@ -16,6 +16,9 @@ import (
 	"syscall"
 	"time"
 	"strings"
+	"net"
+	urlpkg "net/url"
+
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/config"
@@ -33,8 +36,52 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
+	"github.com/pion/stun/v3"
 	"github.com/spf13/viper"
 )
+
+func stunme() {
+	// Resolve the STUN server address
+	stunAddr := "stun.l.google.com:19302"
+
+	// Open a UDP connection to the STUN server
+	conn, err := net.Dial("udp4", stunAddr)
+	if err != nil {
+		log.Fatalf("failed to dial STUN server: %v", err)
+	}
+	defer conn.Close()
+
+	// Create a new STUN client using the UDP connection
+	client, err := stun.NewClient(conn)
+	if err != nil {
+		log.Fatalf("failed to create STUN client: %v", err)
+	}
+	defer client.Close()
+
+	// Build a STUN Binding Request message
+	msg := stun.MustBuild(stun.TransactionID, stun.BindingRequest)
+
+	var publicAddr stun.XORMappedAddress
+
+	// Send the request and handle the response
+	err = client.Do(msg, func(res stun.Event) {
+		if res.Error != nil {
+			log.Fatalf("STUN request failed: %v", res.Error)
+		}
+
+		// Extract the XOR-MAPPED-ADDRESS attribute from the response
+		if err := publicAddr.GetFrom(res.Message); err != nil {
+			log.Fatalf("failed to get XOR-MAPPED-ADDRESS: %v", err)
+		}
+	})
+	if err != nil {
+		log.Fatalf("failed to perform STUN transaction: %v", err)
+	}
+
+	fmt.Printf("Public IP:  http://%s:%d\n", publicAddr.IP, publicAddr.Port)
+	fmt.Printf("Public Port: %d\n", publicAddr.Port)
+	fmt.Printf("Full address: %s\n", publicAddr.String())
+}
 
 func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) *networking.ConnectionManager {
 	// avoid polluting the main namespace with the options and config structs
@@ -377,6 +424,7 @@ func WriteWavFile(filename string, data *RecordingData, sampleRate uint32, bitsP
 func printCommands() {
 	fmt.Fprintf(os.Stderr, "Available commands:\n")
 	fmt.Fprintf(os.Stderr, "    test       - Test current audio device\n")
+	fmt.Fprintf(os.Stderr, "    stun       - Get public ip from stun server\n")
 	fmt.Fprintf(os.Stderr, "    connect       - connect to default server\n")
 	fmt.Fprintf(os.Stderr, "    devices|list    - List all audio devices\n")
 	fmt.Fprintf(os.Stderr, "    select     - Select a device for recording\n")
@@ -391,7 +439,7 @@ func newLocalPeerIdentifier() signalling.PeerIdentifier {
 
 func repl(_ *audioapi.RtAudioApi, app *application.App) {
 	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Printf("\n====== Audio Recording REPL ======\n")
+	fmt.Printf("\n====== Roundtable REPL ======\n")
 	printCommands()
 	fmt.Printf("==================================\n\n")
 	// publicIP := "http://127.0.0.1:1067"
@@ -405,31 +453,35 @@ func repl(_ *audioapi.RtAudioApi, app *application.App) {
 
 		switch cmd {
 		case "connect": {
-			// --------------------------------------------------------------------------------
-			// Make an offer to the answering client on 127.0.0.1:1067
+			fmt.Printf("Enter publicIP string:")
+			if !scanner.Scan() {
+				break
+			}
+			url := strings.TrimSpace(scanner.Text())
+
+			_, err := urlpkg.Parse(url)
+			if err != nil {
+				slog.Error("publicIP is malformed, try again", "err", err)
+			}
 
 			remotePeerIdentifier := signalling.PeerIdentifier{
 				Uuid:     uuid.UUID{},
-				PublicIP: "http://127.0.0.1:1067",
+				PublicIP: url,
 			}
 			jsonPeerIdentifier, _ := json.Marshal(remotePeerIdentifier)
 
 			encodedPeerIdentifier := base64.StdEncoding.EncodeToString(jsonPeerIdentifier)
 			fmt.Printf("[%s]\n", encodedPeerIdentifier)
 
-			fmt.Printf("Enter connection string:")
-			if !scanner.Scan() {
-				break
-			}
-			var connectionString string
-			connectionString = strings.TrimSpace(scanner.Text())
-
 			ctx := context.Background()
-			if err := app.DialRemotePeer(ctx, connectionString); err != nil {
+			if err := app.DialRemotePeer(ctx, encodedPeerIdentifier); err != nil {
 				slog.Error("error during dial of answering client", "err", err)
 				return
 			}
 
+		}
+		case "stun": {
+			stunme()
 		}
 		case "close": fallthrough
 		case "exit": {
