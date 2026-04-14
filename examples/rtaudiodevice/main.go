@@ -312,7 +312,6 @@ func Record(outpath string)  {
 			// Use default output device for loopback
 			inputDevice = audio.DefaultOutputDevice()
 		}
-
 		// For loopback, we need the device to have output channels
 		if inputDevice.NumOutputChannels == 0 {
 			log.Fatal("Selected device has no output channels. For loopback mode, select a device that plays audio (speakers/headphones).")

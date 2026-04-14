@@ -17,7 +17,6 @@ import (
 	"time"
 	"strings"
 	"net"
-	urlpkg "net/url"
 
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
@@ -122,10 +121,7 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 
 	offerOptions := webrtc.OfferOptions{}
 	answerOptions := webrtc.AnswerOptions{}
-	slog.Debug("initializeConnectionManager", "port", viper.GetInt("localport") )
-
-	return networking.NewConnectionManager(
-		viper.GetInt("localport"),
+	manager, err := networking.NewConnectionManager(
 		viper.GetString("signallingserver"),
 		peerFactory,
 		localPeerIdentifier,
@@ -135,6 +131,11 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 		answerOptions,
 		slog.Default(),
 	)
+	if err != nil {
+		slog.Error("error when creating connection manager", "err", err)
+		panic(err)
+	}
+	return manager
 }
 
 
@@ -423,11 +424,11 @@ func WriteWavFile(filename string, data *RecordingData, sampleRate uint32, bitsP
 
 func printCommands() {
 	fmt.Fprintf(os.Stderr, "Available commands:\n")
-	fmt.Fprintf(os.Stderr, "    test       - Test current audio device\n")
-	fmt.Fprintf(os.Stderr, "    stun       - Get public ip from stun server\n")
-	fmt.Fprintf(os.Stderr, "    connect       - connect to default server\n")
-	fmt.Fprintf(os.Stderr, "    devices|list    - List all audio devices\n")
-	fmt.Fprintf(os.Stderr, "    select     - Select a device for recording\n")
+	fmt.Fprintf(os.Stderr, "    join <room>  - Join a room and connect to everyone in it\n")
+	fmt.Fprintf(os.Stderr, "    test         - Test current audio device\n")
+	fmt.Fprintf(os.Stderr, "    stun         - Get public IP from STUN server\n")
+	fmt.Fprintf(os.Stderr, "    devices|list - List all audio devices\n")
+	fmt.Fprintf(os.Stderr, "    select       - Select a device for recording\n")
 }
 
 func newLocalPeerIdentifier() signalling.PeerIdentifier {
@@ -452,33 +453,26 @@ func repl(_ *audioapi.RtAudioApi, app *application.App) {
 		cmd := strings.TrimSpace(scanner.Text())
 
 		switch cmd {
-		case "connect": {
-			fmt.Printf("Enter publicIP string:")
-			if !scanner.Scan() {
+		case "join": {
+			parts := strings.SplitN(cmd, " ", 2)
+			var roomName string
+			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+				roomName = strings.TrimSpace(parts[1])
+			} else {
+				fmt.Printf("Enter room name: ")
+				if !scanner.Scan() {
+					break
+				}
+				roomName = strings.TrimSpace(scanner.Text())
+			}
+			if roomName == "" {
+				fmt.Fprintf(os.Stderr, "room name cannot be empty\n")
 				break
 			}
-			url := strings.TrimSpace(scanner.Text())
-
-			_, err := urlpkg.Parse(url)
-			if err != nil {
-				slog.Error("publicIP is malformed, try again", "err", err)
-			}
-
-			remotePeerIdentifier := signalling.PeerIdentifier{
-				Uuid:     uuid.UUID{},
-				PublicIP: url,
-			}
-			jsonPeerIdentifier, _ := json.Marshal(remotePeerIdentifier)
-
-			encodedPeerIdentifier := base64.StdEncoding.EncodeToString(jsonPeerIdentifier)
-			fmt.Printf("[%s]\n", encodedPeerIdentifier)
-
 			ctx := context.Background()
-			if err := app.DialRemotePeer(ctx, encodedPeerIdentifier); err != nil {
-				slog.Error("error during dial of answering client", "err", err)
-				return
+			if err := app.JoinRoom(ctx, roomName); err != nil {
+				slog.Error("error joining room", "room", roomName, "err", err)
 			}
-
 		}
 		case "stun": {
 			stunme()
@@ -574,6 +568,9 @@ func main() {
 
 
 	localPeerIdentifier := newLocalPeerIdentifier()
+	jsonID, _ := json.Marshal(localPeerIdentifier)
+	fmt.Printf("Your peer ID: %s\n", base64.StdEncoding.EncodeToString(jsonID))
+
 	connectionManager := initializeConnectionManager(localPeerIdentifier)
 
 	app, err := application.NewApp(api, connectionManager)

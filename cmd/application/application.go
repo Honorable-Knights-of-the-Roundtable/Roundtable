@@ -273,6 +273,11 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
 
+// JoinRoom joins a named room on the signalling server and dials all peers already in it.
+func (app *App) JoinRoom(ctx context.Context, roomName string) error {
+	return app.connectionManager.JoinRoom(ctx, roomName)
+}
+
 // Taking the remote peer information as a Base64-encoded JSON-representation of the signalling.PeerIdentifier
 // dial the peer specified and return.
 //

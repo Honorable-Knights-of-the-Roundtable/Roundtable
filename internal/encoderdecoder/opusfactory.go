@@ -40,7 +40,7 @@ func NewOpusFactory(
 	case OPUS_FRAME_DURATION_20_MS:
 	case OPUS_FRAME_DURATION_40_MS:
 	case OPUS_FRAME_DURATION_60_MS:
-	case OPUS_FRAME_DURATION_120_MS:
+	case OPUS_FRAME_DURATION_120_MS: 
 	default:
 		return OpusFactory{}, errInvalidFrameDuration
 	}

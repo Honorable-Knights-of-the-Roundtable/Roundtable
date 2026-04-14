@@ -66,8 +66,7 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 	offerOptions := webrtc.OfferOptions{}
 	answerOptions := webrtc.AnswerOptions{}
 
-	return networking.NewConnectionManager(
-		viper.GetInt("localport"),
+	manager, err := networking.NewConnectionManager(
 		viper.GetString("signallingserver"),
 		peerFactory,
 		localPeerIdentifier,
@@ -77,6 +76,11 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 		answerOptions,
 		slog.Default(),
 	)
+	if err != nil {
+		slog.Error("error when creating connection manager", "err", err)
+		panic(err)
+	}
+	return manager
 }
 
 func main() {
