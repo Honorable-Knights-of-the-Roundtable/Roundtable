@@ -1,5 +1,9 @@
 loglevel: "debug"
 ICEServers:
   - "stun:stun.l.google.com:19302"
-signallingserver: "ws://localhost:1066/ws"
+signallingserver: "wss://roundtablesignallingserver.fly.dev/ws"
 timeout: 30
+OPUSFrameDuration: "60ms"
+OPUSBufferSafetyFactor: 16
+codecs:
+  - "CodecOpus48000Mono"
