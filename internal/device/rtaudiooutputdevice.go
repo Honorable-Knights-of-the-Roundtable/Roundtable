@@ -62,7 +62,7 @@ func NewRtAudioOutputDevice(
 		sampleRate:   sampleRate,
 		numChannels:  channels,
 		bufferFrames: bufferFrames,
-		frameQueue:   make(chan frame.PCMFrame), // Buffer to smooth out playback
+		frameQueue:   make(chan frame.PCMFrame, 8), // Buffer to smooth out playback
 	}
 	return device, nil
 }
@@ -87,17 +87,22 @@ func (d *RtAudioOutputDevice) SetStream(sourceChannel <-chan frame.PCMFrame) {
 			return 0
 		}
 
-		samplesGathered := 0
-		pcmFrame, ok := <-d.frameQueue
-
-		if !ok {
-			// Channel closed, fill remaining with silence and stop
-			for i := samplesGathered; i < len(outputData); i++ {
+		select {
+		case pcmFrame, ok := <-d.frameQueue:
+			if !ok {
+				// Channel closed — fill with silence and stop
+				for i := range outputData {
+					outputData[i] = 0
+				}
+				return 2
+			}
+			copy(outputData, pcmFrame)
+		default:
+			// No frame ready — fill with silence to avoid an underflow stall
+			for i := range outputData {
 				outputData[i] = 0
 			}
-			return 2 // Stop stream
 		}
-		copy(outputData, pcmFrame)
 
 		return 0
 	}

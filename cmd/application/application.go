@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	// "log/slog"
 	"sync"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/peer"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
+	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
 )
 
@@ -276,6 +278,40 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
 func (app *App) JoinRoom(ctx context.Context, roomName string) error {
 	return app.connectionManager.JoinRoom(ctx, roomName)
+}
+
+// RecordPeerAudio records raw decoded audio from the first connected peer for the given
+// duration and returns the samples and the peer's device properties (sample rate, channels).
+// The samples are in the same format as they arrive from the network — before any local
+// format conversion or mixing — so they can be written straight to a WAV file for inspection.
+func (app *App) RecordPeerAudio(duration time.Duration) ([]float32, int, int, error) {
+	app.connectedPeersMutex.Lock()
+	if len(app.connectedPeers) == 0 {
+		app.connectedPeersMutex.Unlock()
+		return nil, 0, 0, fmt.Errorf("no connected peers")
+	}
+	target := app.connectedPeers[0].peer
+	props := target.GetDeviceProperties()
+	app.connectedPeersMutex.Unlock()
+
+	tap := make(chan frame.PCMFrame, 256)
+	target.SetDebugTap(tap)
+	defer target.SetDebugTap(nil)
+
+	var samples []float32
+	deadline := time.NewTimer(duration)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			return samples, props.SampleRate, props.NumChannels, nil
+		case f, ok := <-tap:
+			if !ok {
+				return samples, props.SampleRate, props.NumChannels, nil
+			}
+			samples = append(samples, f...)
+		}
+	}
 }
 
 // Taking the remote peer information as a Base64-encoded JSON-representation of the signalling.PeerIdentifier

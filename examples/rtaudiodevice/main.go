@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"flag"
 	"fmt"
 	"log"
@@ -22,12 +21,6 @@ var selectedDeviceID int = -1 // -1 means use default
 var useLoopback bool = false  // Enable WASAPI loopback mode for system audio capture
 
 
-type RecordingData struct {
-	buffer       []int16
-	totalFrames  int
-	frameCounter int
-	channels     int
-}
 
 func print_devices() {
 			audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
@@ -350,11 +343,11 @@ func Record(outpath string)  {
 	maxFrames := int(sampleRate) * maxDuration
 
 	// Initialize recording data
-	data := &RecordingData{
-		buffer:       make([]int16, maxFrames*channels),
-		totalFrames:  maxFrames,
-		frameCounter: 0,
-		channels:     channels,
+	data := &rtaudiowrapper.RecordingData{
+		Buffer:       make([]int16, maxFrames*channels),
+		TotalFrames:  maxFrames,
+		FrameCounter: 0,
+		Channels:     channels,
 	}
 
 	// Setup stream parameters
@@ -421,18 +414,18 @@ func Record(outpath string)  {
 
 		// Calculate how many frames to copy (stop if we reach buffer limit)
 		frames := nFrames
-		if data.frameCounter+nFrames > data.totalFrames {
-			frames = data.totalFrames - data.frameCounter
+		if data.FrameCounter+nFrames > data.TotalFrames {
+			frames = data.TotalFrames - data.FrameCounter
 			if frames <= 0 {
 				return 2 // Buffer full, stop recording
 			}
 		}
 
 		// Copy data to our buffer
-		offset := data.frameCounter * data.channels
-		samplesToCopy := frames * data.channels
-		copy(data.buffer[offset:offset+samplesToCopy], inputData[:samplesToCopy])
-		data.frameCounter += frames
+		offset := data.FrameCounter * data.Channels
+		samplesToCopy := frames * data.Channels
+		copy(data.Buffer[offset:offset+samplesToCopy], inputData[:samplesToCopy])
+		data.FrameCounter += frames
 
 		return 0
 	}
@@ -465,64 +458,21 @@ func Record(outpath string)  {
 			goto cleanup
 		default:
 			time.Sleep(100 * time.Millisecond)
-			duration := float64(data.frameCounter) / float64(sampleRate)
-			fmt.Printf("\rRecording: %.1f seconds (%d frames)", duration, data.frameCounter)
+			duration := float64(data.FrameCounter) / float64(sampleRate)
+			fmt.Printf("\rRecording: %.1f seconds (%d frames)", duration, data.FrameCounter)
 		}
 	}
 cleanup:
 	fmt.Printf("\n\nRecording complete. Recorded %d frames (%.1f seconds).\n",
-		data.frameCounter, float64(data.frameCounter)/float64(sampleRate))
+		data.FrameCounter, float64(data.FrameCounter)/float64(sampleRate))
 
 	// Write WAV file
 	fmt.Printf("Writing WAV file: %s\n", outpath)
-	if err := WriteWavFile(outpath, data, uint32(sampleRate), 16); err != nil {
+	if err := rtaudiowrapper.WriteWavFile(outpath, data, uint32(sampleRate), 16); err != nil {
 		fmt.Printf("Error writing WAV file: %v\n", err)
 		return
 	}
 	fmt.Printf("Successfully wrote %s\n", outpath)
-}
-
-// writeWavFile writes audio data to a WAV file
-func WriteWavFile(filename string, data *RecordingData, sampleRate uint32, bitsPerSample uint32) error {
-	file, err := os.Create(filename)
-	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
-	}
-	defer file.Close()
-
-	channels := uint32(data.channels)
-
-	// Calculate sizes based on actual frames recorded
-	dataSize := uint32(data.frameCounter) * channels * (bitsPerSample / 8)
-
-	// Write RIFF header
-	file.Write([]byte("RIFF"))
-	binary.Write(file, binary.LittleEndian, uint32(36+dataSize)) // ChunkSize
-	file.Write([]byte("WAVE"))
-
-	// Write fmt subchunk
-	file.Write([]byte("fmt "))
-	binary.Write(file, binary.LittleEndian, uint32(16))                                    // Subchunk1Size (PCM)
-	binary.Write(file, binary.LittleEndian, uint16(1))                                     // AudioFormat (PCM)
-	binary.Write(file, binary.LittleEndian, uint16(channels))                              // NumChannels
-	binary.Write(file, binary.LittleEndian, uint32(sampleRate))                            // SampleRate
-	binary.Write(file, binary.LittleEndian, uint32(sampleRate*channels*(bitsPerSample/8))) // ByteRate
-	binary.Write(file, binary.LittleEndian, uint16(channels*(bitsPerSample/8)))            // BlockAlign
-	binary.Write(file, binary.LittleEndian, uint16(bitsPerSample))                         // BitsPerSample
-
-	// Write data subchunk
-	file.Write([]byte("data"))
-	binary.Write(file, binary.LittleEndian, uint32(dataSize)) // Subchunk2Size
-
-	// Write audio data from Go slice
-	totalSamples := data.frameCounter * data.channels
-	for i := 0; i < totalSamples; i++ {
-		if err := binary.Write(file, binary.LittleEndian, data.buffer[i]); err != nil {
-			return fmt.Errorf("failed to write sample: %w", err)
-		}
-	}
-
-	return nil
 }
 
 
