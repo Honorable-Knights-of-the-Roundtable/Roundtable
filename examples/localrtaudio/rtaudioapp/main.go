@@ -199,46 +199,20 @@ func Record(outpath string)  {
 
 	var inputDevice rtaudiowrapper.DeviceInfo
 
-	if useLoopback {
-		// WASAPI Loopback mode: use output device to capture what's playing
-		fmt.Printf("\n=== WASAPI LOOPBACK MODE ===\n")
-		if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-			inputDevice = devices[selectedDeviceID]
-		} else {
-			// Use default output device for loopback
-			inputDevice = audio.DefaultOutputDevice()
-		}
-
-		// For loopback, we need the device to have output channels
-		if inputDevice.NumOutputChannels == 0 {
-			log.Fatal("Selected device has no output channels. For loopback mode, select a device that plays audio (speakers/headphones).")
-		}
-
-		// In WASAPI loopback, we capture from the output device
-		// The channels should be based on output channels
-		fmt.Printf("Capturing system audio from: %s\n", inputDevice.Name)
-		fmt.Printf("Output channels: %d\n", inputDevice.NumOutputChannels)
+	// Normal input recording mode
+	if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
+		inputDevice = devices[selectedDeviceID]
 	} else {
-		// Normal input recording mode
-		if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-			inputDevice = devices[selectedDeviceID]
-		} else {
-			inputDevice = audio.DefaultInputDevice()
-			fmt.Printf("Recording from default device: %s\n", inputDevice.Name)
-		}
+		inputDevice = audio.DefaultInputDevice()
+		fmt.Printf("Recording from default device: %s\n", inputDevice.Name)
+	}
 
-		if inputDevice.NumInputChannels == 0 {
-			log.Fatal("Selected device has no input channels. Choose a different device.")
-		}
+	if inputDevice.NumInputChannels == 0 {
+		log.Fatal("Selected device has no input channels. Choose a different device.")
 	}
 
 	// Determine channels based on mode
-	var channels int
-	if useLoopback {
-		channels = inputDevice.NumOutputChannels
-	} else {
-		channels = inputDevice.NumInputChannels
-	}
+	channels := inputDevice.NumInputChannels
 	sampleRate := inputDevice.PreferredSampleRate
 
 	// Initialize recording data with a large buffer (e.g., 10 minutes worth)
@@ -258,28 +232,13 @@ func Record(outpath string)  {
 	var inputParams *rtaudiowrapper.StreamParams
 	var outputParams *rtaudiowrapper.StreamParams
 
-	if useLoopback {
-		// WASAPI Loopback: Set BOTH input and output to the same device
-		// This triggers loopback mode in RtAudio
-		outputParams = &rtaudiowrapper.StreamParams{
-			DeviceID:     uint(inputDevice.ID),
-			NumChannels:  uint(channels),
-			FirstChannel: 0,
-		}
-		inputParams = &rtaudiowrapper.StreamParams{
-			DeviceID:     uint(inputDevice.ID),
-			NumChannels:  uint(channels),
-			FirstChannel: 0,
-		}
-	} else {
-		// Normal recording: only input params
-		inputParams = &rtaudiowrapper.StreamParams{
-			DeviceID:     uint(inputDevice.ID),
-			NumChannels:  uint(channels),
-			FirstChannel: 0,
-		}
-		outputParams = nil
+	// Normal recording: only input params
+	inputParams = &rtaudiowrapper.StreamParams{
+		DeviceID:     uint(inputDevice.ID),
+		NumChannels:  uint(channels),
+		FirstChannel: 0,
 	}
+	outputParams = nil
 
 	options := rtaudiowrapper.StreamOptions{
 		Flags: rtaudiowrapper.FlagsScheduleRealtime | rtaudiowrapper.FlagsMinimizeLatency,
@@ -438,7 +397,7 @@ func newLocalPeerIdentifier() signalling.PeerIdentifier {
 	}
 }
 
-func repl(_ *audioapi.RtAudioApi, app *application.App) {
+func repl(api *audioapi.RtAudioApi, app *application.App) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("\n====== Roundtable REPL ======\n")
 	printCommands()
@@ -517,6 +476,14 @@ func repl(_ *audioapi.RtAudioApi, app *application.App) {
 				break
 			}
 			selectedDeviceID = deviceID
+			devices := api.InputDevices()
+			newDev, err:=api.InitInputDeviceFromID(devices[deviceID])
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Invalid device\n")
+				break
+			}
+
+			app.SetInputDevice(newDev)
 			fmt.Printf("Selected device ID: %d\n", selectedDeviceID)
 		default:
 			fmt.Fprintf(os.Stderr, "Invalid command: %s\n", cmd)

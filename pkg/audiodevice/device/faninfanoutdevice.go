@@ -215,7 +215,7 @@ func (source *fanInSource) listen() {
 			}
 
 			// Copy new data in --- we know there must be enough room after tail by above checks
-			copy(source.buffer[source.bufferHead:], frame)
+			copy(source.buffer[source.bufferTail:], frame)
 			source.bufferTail += len(frame)
 
 			// data is consumed by fan in device, so that's all she wrote here

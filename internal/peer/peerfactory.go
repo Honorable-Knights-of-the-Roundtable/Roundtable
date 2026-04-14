@@ -3,6 +3,7 @@ package peer
 import (
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/encoderdecoder"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
@@ -94,15 +95,18 @@ func (factory *PeerFactory) peerCoreConnectionStateChangeHandler(
 	core *peerCore,
 	onConnectedCallback func(*Peer),
 ) func(webrtc.PeerConnectionState) {
+	var once sync.Once
 	return func(pcs webrtc.PeerConnectionState) {
 		core.logger.Debug("peer connection state change", "new state", pcs.String())
 		switch pcs {
 		case webrtc.PeerConnectionStateConnected:
 			core.logger.Info("peer connection connected")
-			wrappedPeer, err := factory.wrapPeerCore(core)
-			if err == nil {
-				onConnectedCallback(wrappedPeer)
-			}
+			once.Do(func() {
+				wrappedPeer, err := factory.wrapPeerCore(core)
+				if err == nil {
+					onConnectedCallback(wrappedPeer)
+				}
+			})
 
 		case webrtc.PeerConnectionStateFailed:
 			core.logger.Info("peer connection failed")
