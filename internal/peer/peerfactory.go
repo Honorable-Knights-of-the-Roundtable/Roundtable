@@ -210,6 +210,12 @@ func (factory *PeerFactory) NewAnsweringPeer(
 // Returns a Peer that wraps the newly connected peerCore. Returns an error if something goes wrong
 func (factory *PeerFactory) wrapPeerCore(core *peerCore) (*Peer, error) {
 	codec := core.connectionAudioInputTrack.Codec()
+	core.logger.Info("wrapping peer core",
+		"negotiatedMimeType", codec.MimeType,
+		"negotiatedClockRate", codec.ClockRate,
+		"negotiatedChannels", codec.Channels,
+		"intendedChannels", factory.audioTrackRTPCodecCapability.Channels,
+	)
 	audioEncoderDecoder, err := factory.opusFactory.NewOpusEncoderDecoder(
 		int(codec.ClockRate),
 		int(codec.Channels),

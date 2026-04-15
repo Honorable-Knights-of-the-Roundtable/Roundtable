@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	// "log/slog"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -16,6 +16,7 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
+	"github.com/spf13/viper"
 )
 
 // The main application representation for the client.
@@ -82,6 +83,11 @@ type App struct {
 
 	// FanInDevice to mix audio from all connected peers back into a single frame to send to speakers
 	outputFanInDevice *device.FanInDevice
+
+	// Whether to insert RNNoise between the mic device and the augmentation stage
+	enableNoiseSuppression bool
+	// The active RNNoise device, if noise suppression is enabled (may be nil)
+	rnnoiseDevice *device.RNNoiseDevice
 }
 
 // --------------------------------------------------------------------------------
@@ -98,7 +104,8 @@ func NewApp(
 		connectedPeers:          make([]*ApplicationPeer, 0),
 		rejectedPeerIdentifiers: make([]signalling.PeerIdentifier, 0),
 
-		audioIODeviceAPI: audioIODeviceAPI,
+		audioIODeviceAPI:       audioIODeviceAPI,
+		enableNoiseSuppression: viper.GetBool("noiseSuppression"),
 		// The remaining audio struct items are initialized by calls to SetInputDevice, SetOutputDevice
 	}
 
@@ -187,8 +194,22 @@ func (app *App) Close() {
 func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	inputDeviceProperties := inputDevice.GetDeviceProperties()
 
+	// Optionally insert RNNoise between the mic and the augmentation stage.
+	// RNNoise only works on mono 48kHz audio; a warning is logged otherwise.
+	var micSource audiodevice.AudioSourceDevice = inputDevice
+	if app.enableNoiseSuppression {
+		rnnoiseDevice, err := device.NewRNNoiseDevice(inputDeviceProperties)
+		if err != nil {
+			slog.Warn("failed to create RNNoise device, continuing without noise suppression", "err", err)
+		} else {
+			rnnoiseDevice.SetStream(inputDevice.GetStream())
+			micSource = rnnoiseDevice
+			app.rnnoiseDevice = rnnoiseDevice
+		}
+	}
+
 	inputAugmentationDevice := device.NewAudioAugmentationDevice(inputDeviceProperties)
-	inputAugmentationDevice.SetStream(inputDevice.GetStream())
+	inputAugmentationDevice.SetStream(micSource.GetStream())
 
 	inputFanOutDevice := device.NewFanOutDevice(inputDeviceProperties)
 	inputFanOutDevice.SetStream(inputAugmentationDevice.GetStream())

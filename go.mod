@@ -4,6 +4,7 @@ go 1.25.1
 
 require (
 	github.com/Honorable-Knights-of-the-Roundtable/opus v0.0.0
+	github.com/Honorable-Knights-of-the-Roundtable/rnnoise v0.0.0-00010101000000-000000000000
 	github.com/Honorable-Knights-of-the-Roundtable/rtaudiowrapper v0.0.0-00010101000000-000000000000
 	github.com/go-audio/audio v1.0.0
 	github.com/go-audio/wav v1.1.0
@@ -14,6 +15,8 @@ require (
 )
 
 replace github.com/Honorable-Knights-of-the-Roundtable/opus => ./internal/opus
+
+replace github.com/Honorable-Knights-of-the-Roundtable/rnnoise => ./internal/rnnoise
 
 replace github.com/Honorable-Knights-of-the-Roundtable/rtaudiowrapper => ./internal/rtaudiowrapper
 
