@@ -485,7 +485,13 @@ func printCommands() {
 	fmt.Fprintf(os.Stderr, "    listOutput         - List all output audio devices\n")
 	fmt.Fprintf(os.Stderr, "    selectInput        - Select input audio device\n")
 	fmt.Fprintf(os.Stderr, "    selectOutput       - Select output audio device\n")
+	fmt.Fprintf(os.Stderr, "    disconnect         - Disconnect from current room\n")
 	fmt.Fprintf(os.Stderr, "    close|exit         - exit the repl\n")
+}
+
+func disconnect(app *application.App) {
+	app.DisconnectAll()
+	fmt.Println("Disconnected from room")
 }
 
 func repl(api *audioapi.RtAudioApi, app *application.App) {
@@ -510,6 +516,7 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		case "listOutput": printOutputDevices(api)
 		case "record-peer": recordPeer(app)
 		case "test": micTest(app)
+		case "disconnect": disconnect(app)
 		case "close": fallthrough
 		case "exit": {
 			app.Close()
@@ -520,43 +527,6 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			fmt.Fprintf(os.Stderr, "Invalid command: %s\n", cmd)
 			printCommands()
 		}
-
-		// case "selectInput":
-		// 	fmt.Printf("Enter device ID: ")
-		// 	if !scanner.Scan() {
-		// 		break
-		// 	}
-		// 	var deviceID int
-		// 	_, err := fmt.Sscanf(strings.TrimSpace(scanner.Text()), "%d", &deviceID)
-		// 	if err != nil {
-		// 		fmt.Fprintf(os.Stderr, "Invalid device ID\n")
-		// 		break
-		// 	}
-		//
-		// 	devices, err := audio.Devices()
-		// 	if err != nil {
-		// 		log.Fatal(err)
-		// 	}
-		// 	// for _, device := range devices {
-		// 	// 	fmt.Println(device.String())
-		// 	// }
-		//
-		// 	var inputDevice rtaudiowrapper.DeviceInfo
-		//
-		// 	// Normal input recording mode
-		// 	if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-		// 		inputDevice = devices[selectedDeviceID]
-		// 	} else {
-		// 		inputDevice = api.audio.DefaultInputDevice()
-		// 		fmt.Printf("Invalid Device Id, selecting default device: %s\n", inputDevice.Name)
-		// 	}
-		//
-		// 	if inputDevice.NumInputChannels == 0 {
-		// 		log.Fatal("Selected device has no input channels. Choose a different device.")
-		// 	}
-		// 	selectedDeviceID = deviceID
-		// 	app.SetInputDevice(newDev)
-		// 	fmt.Printf("Selected device ID: %d\n", selectedDeviceID)
 	}
 
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
+	"github.com/google/uuid"
 )
 
 // The main application representation for the client.
@@ -166,6 +167,50 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	}
 
 	app.connectedPeers = append(app.connectedPeers, &appPeer)
+
+	go func() {
+		<-newPeer.GetContext().Done()
+		app.removePeer(newPeer)
+	}()
+}
+
+func (app *App) removePeer(p *peer.Peer) {
+	app.connectedPeersMutex.Lock()
+	defer app.connectedPeersMutex.Unlock()
+	for i, ap := range app.connectedPeers {
+		if ap.peer == p {
+			app.connectedPeers = append(app.connectedPeers[:i], app.connectedPeers[i+1:]...)
+			return
+		}
+	}
+}
+
+// DisconnectPeer closes the connection to the peer with the given UUID.
+// Returns an error if no connected peer with that UUID is found.
+// The peer is removed from the connected peers list automatically once closed.
+func (app *App) DisconnectPeer(id uuid.UUID) error {
+	app.connectedPeersMutex.Lock()
+	defer app.connectedPeersMutex.Unlock()
+	for _, ap := range app.connectedPeers {
+		if ap.peer.Identifier().Uuid == id {
+			ap.Close()
+			return nil
+		}
+	}
+	return fmt.Errorf("no connected peer with UUID %s", id)
+}
+
+// DisconnectAll closes all currently connected peers, effectively leaving the room.
+// The audio devices remain running so the app can join a new room afterwards.
+func (app *App) DisconnectAll() {
+	app.connectedPeersMutex.Lock()
+	peers := app.connectedPeers
+	app.connectedPeers = nil
+	app.connectedPeersMutex.Unlock()
+
+	for _, ap := range peers {
+		ap.Close()
+	}
 }
 
 // --------------------------------------------------------------------------------
