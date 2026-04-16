@@ -90,4 +90,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: roundtable-windows
-          path: roundtable.exe
+          path: |
+            roundtable.exe
+            cmd/config.yaml
