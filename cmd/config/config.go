@@ -58,7 +58,6 @@ func setViperDefaults() {
 	viper.SetDefault("codecs", []string{"CodecOpus48000Mono", "CodecOpus24000Mono", "CodecOpus48000Stereo", "CodecOpus24000Stereo"})
 	viper.SetDefault("OPUSFrameDuration", encoderdecoder.OPUS_FRAME_DURATION_20_MS)
 	viper.SetDefault("OPUSBufferSafetyFactor", 16)
-	viper.SetDefault("noiseSuppression", false)
 }
 
 func LoadConfig(configFilePath string) {

@@ -5,6 +5,7 @@ import "github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 type DeviceProperties struct {
 	SampleRate  int
 	NumChannels int
+	ID			int
 }
 
 // Interface for audio source device, e.g. microphones
