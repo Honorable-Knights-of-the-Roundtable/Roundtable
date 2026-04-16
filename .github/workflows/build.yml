@@ -106,11 +106,16 @@ jobs:
         run: |
           cp /mingw64/bin/libwinpthread-1.dll .
 
+      - name: Copy Config to root
+        shell: msys2 {0}
+        run: |
+          cp cmd/config.yaml .
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: roundtable-windows
           path: |
             roundtable.exe
-            cmd/config.yaml
+            config.yaml
             libwinpthread-1.dll
