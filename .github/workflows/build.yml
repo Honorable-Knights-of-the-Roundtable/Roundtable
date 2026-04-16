@@ -86,6 +86,26 @@ jobs:
       - name: Build
         run: go build -o roundtable.exe ./cmd
 
+      - name: Check DLL dependencies
+        shell: msys2 {0}
+        run: |
+          echo "=== Runtime DLL imports ==="
+          objdump -p roundtable.exe | grep "DLL Name"
+          if objdump -p roundtable.exe | grep -i "DLL Name.*libstdc++"; then
+            echo "FAIL: libstdc++-6.dll is still a runtime dependency"
+            exit 1
+          fi
+          if objdump -p roundtable.exe | grep -i "DLL Name.*libgcc"; then
+            echo "FAIL: libgcc_s_seh-1.dll is still a runtime dependency"
+            exit 1
+          fi
+          echo "OK: no unexpected MinGW runtime DLLs"
+
+      - name: Collect runtime DLLs
+        shell: msys2 {0}
+        run: |
+          cp /mingw64/bin/libwinpthread-1.dll .
+
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
@@ -93,3 +113,4 @@ jobs:
           path: |
             roundtable.exe
             cmd/config.yaml
+            libwinpthread-1.dll
