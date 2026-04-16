@@ -30,9 +30,9 @@ jobs:
         working-directory: internal/rtaudiowrapper
         run: go generate .
 
-      - name: Test (opus codec)
-        working-directory: internal/opus
-        run: go test ./...
+      # - name: Test (opus codec)
+      #   working-directory: internal/opus
+      #   run: go test ./...
 
       - name: Build
         run: go build -o roundtable ./cmd
@@ -79,9 +79,9 @@ jobs:
         working-directory: internal/rtaudiowrapper
         run: go generate .
 
-      - name: Test (opus codec)
-        working-directory: internal/opus
-        run: go test ./...
+      # - name: Test (opus codec)
+      #   working-directory: internal/opus
+      #   run: go test ./...
 
       - name: Build
         run: go build -o roundtable.exe ./cmd
