@@ -173,5 +173,6 @@ func (d *RtAudioOutputDevice) GetDeviceProperties() audiodevice.DeviceProperties
 	return audiodevice.DeviceProperties{
 		SampleRate:  d.sampleRate,
 		NumChannels: d.numChannels,
+		ID:          d.DeviceID,
 	}
 }

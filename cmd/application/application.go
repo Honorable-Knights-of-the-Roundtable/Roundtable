@@ -5,7 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"log/slog"
+	// "log/slog"
 	"sync"
 	"time"
 
@@ -16,7 +16,6 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
-	"github.com/spf13/viper"
 )
 
 // The main application representation for the client.
@@ -65,8 +64,9 @@ type App struct {
 	// | ----------------------------------- Application ----------------------------------- |	   | -------- ApplicationPeer -------- |
 	// Client's audio input device (e.g. microphone) -> AudioAugmentationDevice -> FanOutDevice -> [AudioFormatConversionDevice -> Peer]
 
+	// TODO: Perhaps this shouldn't be public, but a getter would have no purpose other than returning this
 	// The audio input device of the client, i.e. the microphone of choice
-	audioInputDevice audiodevice.AudioSourceDevice
+	AudioInputDevice audiodevice.AudioSourceDevice
 
 	// Augmentation of the input audio, e.g. for setting this client's volume before sending to the remote peer
 	inputAugmentationDevice *device.AudioAugmentationDevice
@@ -78,16 +78,13 @@ type App struct {
 	// | ---------------------- ApplicationPeer ---------------------- |    | -------------------- Application -------------------- |
 	// [ Peer -> AudioFormatConversionDevice -> AudioAugmentationDevice] -> FanInDevice -> Client's audio output device (e.g. speaker)
 
+
+	// TODO: Perhaps this shouldn't be public, but a getter would have no purpose other than returning this
 	// The audio output device, i.e. the speaker of choice
-	audioOutputDevice audiodevice.AudioSinkDevice
+	AudioOutputDevice audiodevice.AudioSinkDevice
 
 	// FanInDevice to mix audio from all connected peers back into a single frame to send to speakers
 	outputFanInDevice *device.FanInDevice
-
-	// Whether to insert RNNoise between the mic device and the augmentation stage
-	enableNoiseSuppression bool
-	// The active RNNoise device, if noise suppression is enabled (may be nil)
-	rnnoiseDevice *device.RNNoiseDevice
 }
 
 // --------------------------------------------------------------------------------
@@ -104,8 +101,7 @@ func NewApp(
 		connectedPeers:          make([]*ApplicationPeer, 0),
 		rejectedPeerIdentifiers: make([]signalling.PeerIdentifier, 0),
 
-		audioIODeviceAPI:       audioIODeviceAPI,
-		enableNoiseSuppression: viper.GetBool("noiseSuppression"),
+		audioIODeviceAPI: audioIODeviceAPI,
 		// The remaining audio struct items are initialized by calls to SetInputDevice, SetOutputDevice
 	}
 
@@ -145,7 +141,7 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	defer app.connectedPeersMutex.Unlock()
 
 	sinkAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
-		app.audioInputDevice.GetDeviceProperties(),
+		app.AudioInputDevice.GetDeviceProperties(),
 		newPeer.GetDeviceProperties(),
 	)
 	newPeer.SetStream(sinkAudioFormatConversionDevice.GetStream())
@@ -153,10 +149,10 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 
 	sourceAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
 		newPeer.GetDeviceProperties(),
-		app.audioOutputDevice.GetDeviceProperties(),
+		app.AudioOutputDevice.GetDeviceProperties(),
 	)
 	sourceAudioAugmentationDevice := device.NewAudioAugmentationDevice(
-		app.audioInputDevice.GetDeviceProperties(),
+		app.AudioInputDevice.GetDeviceProperties(),
 	)
 	sourceAudioFormatConversionDevice.SetStream(newPeer.GetStream())
 	sourceAudioAugmentationDevice.SetStream(sourceAudioFormatConversionDevice.GetStream())
@@ -184,7 +180,7 @@ func (app *App) Close() {
 	app.connectedPeersMutex.Lock()
 	defer app.connectedPeersMutex.Unlock()
 
-	app.audioInputDevice.Close()
+	app.AudioInputDevice.Close()
 	for _, peer := range app.connectedPeers {
 		peer.Close()
 	}
@@ -194,22 +190,8 @@ func (app *App) Close() {
 func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	inputDeviceProperties := inputDevice.GetDeviceProperties()
 
-	// Optionally insert RNNoise between the mic and the augmentation stage.
-	// RNNoise only works on mono 48kHz audio; a warning is logged otherwise.
-	var micSource audiodevice.AudioSourceDevice = inputDevice
-	if app.enableNoiseSuppression {
-		rnnoiseDevice, err := device.NewRNNoiseDevice(inputDeviceProperties)
-		if err != nil {
-			slog.Warn("failed to create RNNoise device, continuing without noise suppression", "err", err)
-		} else {
-			rnnoiseDevice.SetStream(inputDevice.GetStream())
-			micSource = rnnoiseDevice
-			app.rnnoiseDevice = rnnoiseDevice
-		}
-	}
-
 	inputAugmentationDevice := device.NewAudioAugmentationDevice(inputDeviceProperties)
-	inputAugmentationDevice.SetStream(micSource.GetStream())
+	inputAugmentationDevice.SetStream(inputDevice.GetStream())
 
 	inputFanOutDevice := device.NewFanOutDevice(inputDeviceProperties)
 	inputFanOutDevice.SetStream(inputAugmentationDevice.GetStream())
@@ -240,11 +222,11 @@ func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	app.connectedPeersMutex.Unlock()
 
 	// We made all devices correctly, now affect changes to App
-	if app.audioInputDevice != nil {
-		oldInputDevice := app.audioInputDevice
+	if app.AudioInputDevice != nil {
+		oldInputDevice := app.AudioInputDevice
 		defer oldInputDevice.Close()
 	}
-	app.audioInputDevice = inputDevice
+	app.AudioInputDevice = inputDevice
 	app.inputAugmentationDevice = inputAugmentationDevice
 	app.inputFanOutDevice = &inputFanOutDevice
 
@@ -291,7 +273,7 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 		defer oldFanInDevice.Close()
 	}
 	app.outputFanInDevice = outputFanInDevice
-	app.audioOutputDevice = outputDevice
+	app.AudioOutputDevice = outputDevice
 
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
