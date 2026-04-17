@@ -102,9 +102,7 @@ jobs:
           echo "OK: no unexpected MinGW runtime DLLs"
 
       - name: Collect runtime DLLs
-        shell: msys2 {0}
-        run: |
-          cp /mingw64/bin/libwinpthread-1.dll .
+        run: Copy-Item C:\msys64\mingw64\bin\libwinpthread-1.dll .
 
       - name: Copy Config to root
         shell: msys2 {0}

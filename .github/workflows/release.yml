@@ -52,13 +52,12 @@ jobs:
         run: go build -o roundtable.exe ./cmd
 
       - name: Package release
-        shell: msys2 {0}
         run: |
-          mkdir -p release
-          cp roundtable.exe release/
-          cp cmd/config.yaml release/
-          cp /mingw64/bin/libwinpthread-1.dll release/
-          cd release && zip ../roundtable-${{ github.ref_name }}-windows.zip *
+          New-Item -ItemType Directory -Path release
+          Copy-Item roundtable.exe release/
+          Copy-Item cmd/config.yaml release/
+          Copy-Item C:\msys64\mingw64\bin\libwinpthread-1.dll release/
+          Compress-Archive -Path release\* -DestinationPath "roundtable-${{ github.ref_name }}-windows.zip"
 
       - name: Create release
         env:
