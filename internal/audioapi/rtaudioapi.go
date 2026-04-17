@@ -156,9 +156,9 @@ func (api *RtAudioApi) InitOutputDeviceFromID(ioDevice AudioIODevice) (audiodevi
 		return nil, fmt.Errorf("failed to get devices: %w", err)
 	}
 
-	for _, d := range devices {
-		fmt.Println(d)
-	}
+	// for _, d := range devices {
+	// 	fmt.Println(d)
+	// }
 
 	var currentDevice *rtaudiowrapper.DeviceInfo
 	for _, d := range devices {

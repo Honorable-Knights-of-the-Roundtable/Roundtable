@@ -202,8 +202,13 @@ func (encdec *OpusEncoderDecoder) Decode(encodedData frame.EncodedFrame) (frame.
 	if err != nil {
 		return nil, err
 	}
-	decodedFrame := encdec.decodedFrameBuffer[encdec.decodedFrameBufferTail : encdec.decodedFrameBufferTail+numDecodedSamples*encdec.numChannels]
-	encdec.decodedFrameBufferTail += numDecodedSamples * encdec.numChannels
+	numSamples := numDecodedSamples * encdec.numChannels
+	// Copy into an owned slice before returning. The decodedFrameBuffer is a ring
+	// buffer that will be overwritten on the next Decode call; callers (channels,
+	// debug tap) may hold the slice across calls, so we must not alias the buffer.
+	result := make(frame.PCMFrame, numSamples)
+	copy(result, encdec.decodedFrameBuffer[encdec.decodedFrameBufferTail:encdec.decodedFrameBufferTail+numSamples])
+	encdec.decodedFrameBufferTail += numSamples
 
 	// slog.Debug("decoding frame",
 	// 	"incomingDataLen", len(encodedData),
@@ -211,5 +216,5 @@ func (encdec *OpusEncoderDecoder) Decode(encodedData frame.EncodedFrame) (frame.
 	// 	"decodedFrameBufferTail", encdec.decodedFrameBufferTail,
 	// 	"numDecodedSamples", numDecodedSamples,
 	// )
-	return decodedFrame, nil
+	return result, nil
 }

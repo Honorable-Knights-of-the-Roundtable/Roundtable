@@ -4,7 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
+	"fmt"
+	// "log/slog"
 	"sync"
 	"time"
 
@@ -13,7 +14,9 @@ import (
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/peer"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
+	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
+	"github.com/google/uuid"
 )
 
 // The main application representation for the client.
@@ -62,8 +65,9 @@ type App struct {
 	// | ----------------------------------- Application ----------------------------------- |	   | -------- ApplicationPeer -------- |
 	// Client's audio input device (e.g. microphone) -> AudioAugmentationDevice -> FanOutDevice -> [AudioFormatConversionDevice -> Peer]
 
+	// TODO: Perhaps this shouldn't be public, but a getter would have no purpose other than returning this
 	// The audio input device of the client, i.e. the microphone of choice
-	audioInputDevice audiodevice.AudioSourceDevice
+	AudioInputDevice audiodevice.AudioSourceDevice
 
 	// Augmentation of the input audio, e.g. for setting this client's volume before sending to the remote peer
 	inputAugmentationDevice *device.AudioAugmentationDevice
@@ -75,8 +79,10 @@ type App struct {
 	// | ---------------------- ApplicationPeer ---------------------- |    | -------------------- Application -------------------- |
 	// [ Peer -> AudioFormatConversionDevice -> AudioAugmentationDevice] -> FanInDevice -> Client's audio output device (e.g. speaker)
 
+
+	// TODO: Perhaps this shouldn't be public, but a getter would have no purpose other than returning this
 	// The audio output device, i.e. the speaker of choice
-	audioOutputDevice audiodevice.AudioSinkDevice
+	AudioOutputDevice audiodevice.AudioSinkDevice
 
 	// FanInDevice to mix audio from all connected peers back into a single frame to send to speakers
 	outputFanInDevice *device.FanInDevice
@@ -136,7 +142,7 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	defer app.connectedPeersMutex.Unlock()
 
 	sinkAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
-		app.audioInputDevice.GetDeviceProperties(),
+		app.AudioInputDevice.GetDeviceProperties(),
 		newPeer.GetDeviceProperties(),
 	)
 	newPeer.SetStream(sinkAudioFormatConversionDevice.GetStream())
@@ -144,10 +150,10 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 
 	sourceAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
 		newPeer.GetDeviceProperties(),
-		app.audioOutputDevice.GetDeviceProperties(),
+		app.AudioOutputDevice.GetDeviceProperties(),
 	)
 	sourceAudioAugmentationDevice := device.NewAudioAugmentationDevice(
-		app.audioInputDevice.GetDeviceProperties(),
+		app.AudioInputDevice.GetDeviceProperties(),
 	)
 	sourceAudioFormatConversionDevice.SetStream(newPeer.GetStream())
 	sourceAudioAugmentationDevice.SetStream(sourceAudioFormatConversionDevice.GetStream())
@@ -161,6 +167,50 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	}
 
 	app.connectedPeers = append(app.connectedPeers, &appPeer)
+
+	go func() {
+		<-newPeer.GetContext().Done()
+		app.removePeer(newPeer)
+	}()
+}
+
+func (app *App) removePeer(p *peer.Peer) {
+	app.connectedPeersMutex.Lock()
+	defer app.connectedPeersMutex.Unlock()
+	for i, ap := range app.connectedPeers {
+		if ap.peer == p {
+			app.connectedPeers = append(app.connectedPeers[:i], app.connectedPeers[i+1:]...)
+			return
+		}
+	}
+}
+
+// DisconnectPeer closes the connection to the peer with the given UUID.
+// Returns an error if no connected peer with that UUID is found.
+// The peer is removed from the connected peers list automatically once closed.
+func (app *App) DisconnectPeer(id uuid.UUID) error {
+	app.connectedPeersMutex.Lock()
+	defer app.connectedPeersMutex.Unlock()
+	for _, ap := range app.connectedPeers {
+		if ap.peer.Identifier().Uuid == id {
+			ap.Close()
+			return nil
+		}
+	}
+	return fmt.Errorf("no connected peer with UUID %s", id)
+}
+
+// DisconnectAll closes all currently connected peers, effectively leaving the room.
+// The audio devices remain running so the app can join a new room afterwards.
+func (app *App) DisconnectAll() {
+	app.connectedPeersMutex.Lock()
+	peers := app.connectedPeers
+	app.connectedPeers = nil
+	app.connectedPeersMutex.Unlock()
+
+	for _, ap := range peers {
+		ap.Close()
+	}
 }
 
 // --------------------------------------------------------------------------------
@@ -175,7 +225,7 @@ func (app *App) Close() {
 	app.connectedPeersMutex.Lock()
 	defer app.connectedPeersMutex.Unlock()
 
-	app.audioInputDevice.Close()
+	app.AudioInputDevice.Close()
 	for _, peer := range app.connectedPeers {
 		peer.Close()
 	}
@@ -217,15 +267,15 @@ func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	app.connectedPeersMutex.Unlock()
 
 	// We made all devices correctly, now affect changes to App
-	if app.audioInputDevice != nil {
-		oldInputDevice := app.audioInputDevice
+	if app.AudioInputDevice != nil {
+		oldInputDevice := app.AudioInputDevice
 		defer oldInputDevice.Close()
 	}
-	app.audioInputDevice = inputDevice
+	app.AudioInputDevice = inputDevice
 	app.inputAugmentationDevice = inputAugmentationDevice
 	app.inputFanOutDevice = &inputFanOutDevice
 
-	slog.Debug("updated set input device", "new properties", app.audioInputDevice.GetDeviceProperties())
+	// slog.Debug("updated set input device", "new properties", app.audioInputDevice.GetDeviceProperties())
 }
 
 func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
@@ -268,9 +318,48 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 		defer oldFanInDevice.Close()
 	}
 	app.outputFanInDevice = outputFanInDevice
-	app.audioOutputDevice = outputDevice
+	app.AudioOutputDevice = outputDevice
 
-	slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
+	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
+}
+
+// JoinRoom joins a named room on the signalling server and dials all peers already in it.
+func (app *App) JoinRoom(ctx context.Context, roomName string) error {
+	return app.connectionManager.JoinRoom(ctx, roomName)
+}
+
+// RecordPeerAudio records raw decoded audio from the first connected peer for the given
+// duration and returns the samples and the peer's device properties (sample rate, channels).
+// The samples are in the same format as they arrive from the network — before any local
+// format conversion or mixing — so they can be written straight to a WAV file for inspection.
+func (app *App) RecordPeerAudio(duration time.Duration) ([]float32, int, int, error) {
+	app.connectedPeersMutex.Lock()
+	if len(app.connectedPeers) == 0 {
+		app.connectedPeersMutex.Unlock()
+		return nil, 0, 0, fmt.Errorf("no connected peers")
+	}
+	target := app.connectedPeers[0].peer
+	props := target.GetDeviceProperties()
+	app.connectedPeersMutex.Unlock()
+
+	tap := make(chan frame.PCMFrame, 256)
+	target.SetDebugTap(tap)
+	defer target.SetDebugTap(nil)
+
+	var samples []float32
+	deadline := time.NewTimer(duration)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-deadline.C:
+			return samples, props.SampleRate, props.NumChannels, nil
+		case f, ok := <-tap:
+			if !ok {
+				return samples, props.SampleRate, props.NumChannels, nil
+			}
+			samples = append(samples, f...)
+		}
+	}
 }
 
 // Taking the remote peer information as a Base64-encoded JSON-representation of the signalling.PeerIdentifier

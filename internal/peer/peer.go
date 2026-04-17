@@ -46,6 +46,10 @@ type Peer struct {
 
 	// Audio encoder / decoder to be used for this connection only
 	audioEncoderDecoder *encoderdecoder.OpusEncoderDecoder
+
+	// Optional tap for debug recording. When non-nil, a copy of every decoded frame
+	// is sent here (non-blocking — frames are dropped if the tap can't keep up).
+	debugTap chan<- frame.PCMFrame
 }
 
 // --------------------------------------------------------------------------------
@@ -100,6 +104,13 @@ func (peer *Peer) GetDeviceProperties() audiodevice.DeviceProperties {
 // When this peer is shutdown, the given channel is closed (hence, no data is to be sent on it anymore)
 func (peer *Peer) GetStream() <-chan frame.PCMFrame {
 	return peer.audioSinkChannel
+}
+
+// SetDebugTap sets a channel that receives a copy of every decoded PCM frame as it
+// arrives from the remote peer, before any format conversion or mixing.
+// Pass nil to disable. Frames are dropped (not blocked) if the tap channel is full.
+func (peer *Peer) SetDebugTap(ch chan<- frame.PCMFrame) {
+	peer.debugTap = ch
 }
 
 // --------------------------------------------------------------------------------
@@ -245,11 +256,15 @@ func (peer *Peer) receiveAudioOutputHandler() {
 			}
 			// TODO: Handle dropped and out-of-order packets?
 
-			// If peer.audioOutputChannel is nil, i.e. not yet set, then this just blocks not panics
-			// If source channel cannot receive data, do we want to wait or drop the packet?
+			if peer.debugTap != nil {
+				select {
+				case peer.debugTap <- decodedPayload:
+				default:
+				}
+			}
+
 			select {
 			case peer.audioSinkChannel <- decodedPayload:
-				// default:
 			}
 			// slog.Debug(
 			// 	"frame sent",

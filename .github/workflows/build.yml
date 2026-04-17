@@ -1,0 +1,121 @@
+name: Build
+
+on:
+  push:
+    branches: [main, websocket]
+  pull_request:
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev libasound2-dev g++
+
+      - name: Cache rtaudio native object
+        uses: actions/cache@v4
+        with:
+          path: internal/rtaudiowrapper/rtaudio_go.o
+          key: rtaudio-linux-${{ hashFiles('internal/rtaudiowrapper/lib/rtaudio_go.cpp', 'internal/rtaudiowrapper/build.go') }}
+
+      - name: Compile rtaudio native library
+        working-directory: internal/rtaudiowrapper
+        run: go generate .
+
+      # - name: Test (opus codec)
+      #   working-directory: internal/opus
+      #   run: go test ./...
+
+      - name: Build
+        run: go build -o roundtable ./cmd
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: false
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-opus
+
+      - name: Cache opus install
+        id: cache-opus
+        uses: actions/cache@v4
+        with:
+          path: C:\opus
+          key: opus-windows-${{ hashFiles('internal/opus/build.go') }}
+
+      - name: Install opus to C:\opus
+        if: steps.cache-opus.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        run: |
+          mkdir -p /c/opus/include /c/opus/lib
+          cp -r /mingw64/include/opus /c/opus/include/
+          cp /mingw64/lib/libopus.a /c/opus/lib/
+
+      - name: Cache rtaudio native object
+        uses: actions/cache@v4
+        with:
+          path: internal/rtaudiowrapper/rtaudio_go.o
+          key: rtaudio-windows-${{ hashFiles('internal/rtaudiowrapper/lib/rtaudio_go.cpp', 'internal/rtaudiowrapper/build.go') }}
+
+      - name: Compile rtaudio native library
+        working-directory: internal/rtaudiowrapper
+        run: go generate .
+
+      # - name: Test (opus codec)
+      #   working-directory: internal/opus
+      #   run: go test ./...
+
+      - name: Build
+        run: go build -o roundtable.exe ./cmd
+
+      - name: Check DLL dependencies
+        shell: msys2 {0}
+        run: |
+          echo "=== Runtime DLL imports ==="
+          objdump -p roundtable.exe | grep "DLL Name"
+          if objdump -p roundtable.exe | grep -i "DLL Name.*libstdc++"; then
+            echo "FAIL: libstdc++-6.dll is still a runtime dependency"
+            exit 1
+          fi
+          if objdump -p roundtable.exe | grep -i "DLL Name.*libgcc"; then
+            echo "FAIL: libgcc_s_seh-1.dll is still a runtime dependency"
+            exit 1
+          fi
+          echo "OK: no unexpected MinGW runtime DLLs"
+
+      - name: Collect runtime DLLs
+        shell: msys2 {0}
+        run: |
+          cp /mingw64/bin/libwinpthread-1.dll .
+
+      - name: Copy Config to root
+        shell: msys2 {0}
+        run: |
+          cp cmd/config.yaml .
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtable-windows
+          path: |
+            roundtable.exe
+            config.yaml
+            libwinpthread-1.dll

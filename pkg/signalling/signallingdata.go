@@ -1,9 +1,20 @@
 package signalling
 
 import (
+	"encoding/json"
+
 	"github.com/google/uuid"
 	"github.com/pion/webrtc/v4"
 )
+
+// WSMessage is the envelope for all messages exchanged over the signalling WebSocket.
+// Type determines how Data is interpreted.
+type WSMessage struct {
+	Type string          `json:"type"` // "register", "offer", "answer"
+	To   string          `json:"to,omitempty"`
+	From string          `json:"from,omitempty"`
+	Data json.RawMessage `json:"data,omitempty"`
+}
 
 const (
 	// Defines the endpoint that clients and the signalling server listens on for request.

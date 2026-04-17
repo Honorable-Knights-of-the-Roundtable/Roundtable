@@ -48,7 +48,7 @@ func NewRtAudioInputDevice(
 	sampleRate := deviceInfo.PreferredSampleRate
 
 	ctx, ctxCancelFunc := context.WithCancel(context.Background())
-	dataChannel := make(chan frame.PCMFrame)
+	dataChannel := make(chan frame.PCMFrame, 16)
 	errorChannel := make(chan error, 5)
 
 	bufferFrames := uint(int(sampleRate) * int(frameDuration) / int(time.Second))
@@ -101,11 +101,14 @@ func NewRtAudioInputDevice(
 		// Convert float32 slice to PCMFrame (already in correct format)
 		pcmFrame := make(frame.PCMFrame, len(inputData))
 		copy(pcmFrame, inputData)
-		dataChannel <- pcmFrame
+		select {
+		case dataChannel <- pcmFrame:
+		default:
+			inputDevice.framesLost.Add(1)
+		}
 
-		// Check for input overflow
 		if status&rtaudiowrapper.StatusInputOverflow != 0 {
-			logger.Warn("input overflow detected")
+			inputDevice.framesLost.Add(1)
 		}
 
 		return 0
@@ -166,5 +169,6 @@ func (d *RtAudioInputDevice) GetDeviceProperties() audiodevice.DeviceProperties 
 	return audiodevice.DeviceProperties{
 		SampleRate:  int(d.sampleRate),
 		NumChannels: d.numChannels,
+		ID: 		 d.DeviceID,
 	}
 }

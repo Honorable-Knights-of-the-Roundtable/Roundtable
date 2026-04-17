@@ -39,7 +39,7 @@ See the dependencies below for information on required libraries. The produced b
 
 ### Build Examples
 
-Examples are held in the `examples` directory, which each have their own Makefile for sanitation. Beware that you will need a [signalling server](https://github.com/Honorable-Knights-of-the-Roundtable/signallingserver) to run the networking examples. The liked repo contains information on how to run the signalling server, along with configuration.
+Examples are held in the `examples` directory, which each have their own Makefile for sanitation. Beware that you will need a [signalling server](https://github.com/Honorable-Knights-of-the-Roundtable/signallingserver) to run the networking examples. The linked repo contains information on how to run the signalling server, along with configuration.
 
 # Dependencies
 

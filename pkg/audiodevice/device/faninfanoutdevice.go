@@ -204,18 +204,22 @@ func (source *fanInSource) listen() {
 				continue
 			}
 
-			// If we are about to overwrite the end of the buffer, loop back to start
-			//
-			// TODO: May cause jitter if head of buffer is overwritten, but...
-			// very unlikely since audio should be consumed faster than this.
+			// Compact: move unread data to the start of the buffer to reclaim space at the tail.
 			if len(frame)+source.bufferTail > len(source.buffer) {
 				copy(source.buffer, source.buffer[source.bufferHead:source.bufferTail])
 				source.bufferTail = source.bufferTail - source.bufferHead
 				source.bufferHead = 0
 			}
 
-			// Copy new data in --- we know there must be enough room after tail by above checks
-			copy(source.buffer[source.bufferHead:], frame)
+			// If the frame still doesn't fit after compaction (buffer is genuinely full),
+			// drop the oldest samples to make room rather than panicking.
+			if len(frame)+source.bufferTail > len(source.buffer) {
+				excess := len(frame) + source.bufferTail - len(source.buffer)
+				copy(source.buffer, source.buffer[excess:source.bufferTail])
+				source.bufferTail -= excess
+			}
+
+			copy(source.buffer[source.bufferTail:], frame)
 			source.bufferTail += len(frame)
 
 			// data is consumed by fan in device, so that's all she wrote here
