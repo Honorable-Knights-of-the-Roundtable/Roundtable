@@ -260,7 +260,7 @@ func print_devices() {
 			marker = " [DEFAULT IN]"
 		}
 		duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
-		fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", device.Name, inputCh, outputCh, duplexCh, marker)
+		fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", i, device.Name, inputCh, outputCh, duplexCh, marker)
 	}
 	fmt.Printf("Use 'select' to choose a device for recording\n")
 }
@@ -424,14 +424,68 @@ func recordPeer(app *application.App) {
 }
 
 func micTest(app *application.App) {
-	dir := filepath.Dir(micTestFile)
-	err := os.MkdirAll(dir, 0755)
-	if err != nil {
+	if err := os.MkdirAll(filepath.Dir(micTestFile), 0755); err != nil {
 		log.Fatalf("Failed to create directory: %v", err)
+	}
+
+	fmt.Println("Recording from mic... press Enter to stop")
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		bufio.NewReader(os.Stdin).ReadBytes('\n')
+		cancel()
+	}()
+
+	samples, sampleRate, numChannels, err := app.TapInputAudio(ctx)
+	cancel()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "recording error: %v\n", err)
 		return
 	}
 
-	Record(micTestFile, app.AudioInputDevice)
+	// Debug: report peak level so we can tell if the mic captured anything
+	var peak float32
+	for _, s := range samples {
+		if s < 0 {
+			s = -s
+		}
+		if s > peak {
+			peak = s
+		}
+	}
+	fmt.Printf("Recorded %d samples, peak level: %.2f%%\n", len(samples), peak*100)
+
+	// Mix stereo down to mono using the user's selected channel so both ears hear the playback.
+	if numChannels == 2 {
+		ch := app.GetPreferredInputChannel()
+		mono := make([]float32, len(samples)/2)
+		for i := range mono {
+			mono[i] = samples[i*2+ch]
+		}
+		samples = mono
+		numChannels = 1
+	}
+
+	int16Samples := make([]int16, len(samples))
+	for i, s := range samples {
+		if s > 1.0 {
+			s = 1.0
+		} else if s < -1.0 {
+			s = -1.0
+		}
+		int16Samples[i] = int16(s * 32767)
+	}
+
+	data := &rtaudiowrapper.RecordingData{
+		Buffer:       int16Samples,
+		TotalFrames:  len(int16Samples) / numChannels,
+		FrameCounter: len(int16Samples) / numChannels,
+		Channels:     numChannels,
+	}
+	if err := rtaudiowrapper.WriteWavFile(micTestFile, data, uint32(sampleRate), 16); err != nil {
+		fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
+		return
+	}
+
 	fmt.Printf("Playing from: %s\n", micTestFile)
 	if err := rtaudiowrapper.Speaker(micTestFile); err != nil {
 		fmt.Fprintf(os.Stderr, "Error playing file: %v\n", err)
@@ -467,11 +521,13 @@ func selectDevice(api *audioapi.RtAudioApi, app *application.App, devices []audi
 
 func selectInput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.InputDevices()
+	printInputDevices(api)
 	selectDevice(api, app, devices)
 }
 
 func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.OutputDevices()
+	printOutputDevices(api)
 	selectDevice(api, app, devices)
 }
 
@@ -483,9 +539,12 @@ func printCommands() {
 	fmt.Fprintf(os.Stderr, "    devices            - List all audio devices\n")
 	fmt.Fprintf(os.Stderr, "    listInput          - List all input audio devices\n")
 	fmt.Fprintf(os.Stderr, "    listOutput         - List all output audio devices\n")
-	fmt.Fprintf(os.Stderr, "    selectInput        - Select input audio device\n")
-	fmt.Fprintf(os.Stderr, "    selectOutput       - Select output audio device\n")
+	fmt.Fprintf(os.Stderr, "    input              - Select input audio device\n")
+	fmt.Fprintf(os.Stderr, "    output              - Select output audio device\n")
+	fmt.Fprintf(os.Stderr, "    channel <1|2>      - Select input channel for stereo devices (default: 1)\n")
+	fmt.Fprintf(os.Stderr, "    gain <value>       - Set input gain multiplier (e.g. gain 200)\n")
 	fmt.Fprintf(os.Stderr, "    disconnect         - Disconnect from current room\n")
+	fmt.Fprintf(os.Stderr, "    help               - prints this message\n")
 	fmt.Fprintf(os.Stderr, "    close|exit         - exit the repl\n")
 }
 
@@ -505,24 +564,62 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		if !scanner.Scan() {
 			break
 		}
-		cmd := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(scanner.Text())
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		cmd := parts[0]
 
 		switch cmd {
-		case "join": join(cmd, app)
-		case "devices": print_devices()
-		case "listInput": printInputDevices(api)
-		case "selectInput": selectInput(api, app)
-		case "selectOutput": selectOutput(api, app)
-		case "listOutput": printOutputDevices(api)
-		case "record-peer": recordPeer(app)
-		case "test": micTest(app)
-		case "disconnect": disconnect(app)
-		case "close": fallthrough
-		case "exit": {
+		case "join":
+			join(line, app)
+		case "devices":
+			print_devices()
+		case "listInput":
+			printInputDevices(api)
+		case "input":
+			selectInput(api, app)
+		case "output":
+			selectOutput(api, app)
+		case "listOutput":
+			printOutputDevices(api)
+		case "record-peer":
+			recordPeer(app)
+		case "test":
+			micTest(app)
+		case "channel":
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "usage: channel <1|2>\n")
+				break
+			}
+			var ch int
+			if _, err := fmt.Sscanf(parts[1], "%d", &ch); err != nil || ch < 1 || ch > 2 {
+				fmt.Fprintf(os.Stderr, "channel: must be 1 or 2\n")
+				break
+			}
+			app.SetInputChannel(ch - 1)
+			fmt.Printf("Input channel set to Input %d\n", ch)
+		case "gain":
+			if len(parts) != 2 {
+				fmt.Fprintf(os.Stderr, "usage: gain <value>  (e.g. gain 200)\n")
+				break
+			}
+			var g float32
+			if _, err := fmt.Sscanf(parts[1], "%f", &g); err != nil || g < 0 {
+				fmt.Fprintf(os.Stderr, "gain: value must be a non-negative number\n")
+				break
+			}
+			app.SetInputGain(g)
+			fmt.Printf("Input gain set to %.1f\n", g)
+		case "disconnect":
+			disconnect(app)
+		case "help":
+			printCommands()
+		case "close", "exit":
 			app.Close()
 			os.Exit(0)
 			return
-		}
 		default:
 			fmt.Fprintf(os.Stderr, "Invalid command: %s\n", cmd)
 			printCommands()

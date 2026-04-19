@@ -186,7 +186,7 @@ func (api *RtAudioApi) InitDefaultOutputDevice() (audiodevice.AudioSinkDevice, e
 		Name: defaultOutputDevice.Name,
 		DeviceProperties: audiodevice.DeviceProperties{
 			SampleRate:  int(defaultOutputDevice.PreferredSampleRate),
-			NumChannels: defaultOutputDevice.NumInputChannels,
+			NumChannels: defaultOutputDevice.NumOutputChannels,
 		},
 	})
 }

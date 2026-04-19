@@ -86,6 +86,10 @@ type App struct {
 
 	// FanInDevice to mix audio from all connected peers back into a single frame to send to speakers
 	outputFanInDevice *device.FanInDevice
+
+	// For stereo input devices: which channel to use when converting to mono.
+	// 0 = left (Input 1), 1 = right (Input 2). Default 0.
+	preferredInputChannel int
 }
 
 // --------------------------------------------------------------------------------
@@ -142,7 +146,7 @@ func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	defer app.connectedPeersMutex.Unlock()
 
 	sinkAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
-		app.AudioInputDevice.GetDeviceProperties(),
+		app.propsWithChannel(app.AudioInputDevice.GetDeviceProperties()),
 		newPeer.GetDeviceProperties(),
 	)
 	newPeer.SetStream(sinkAudioFormatConversionDevice.GetStream())
@@ -254,7 +258,7 @@ func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 	app.connectedPeersMutex.Lock()
 	for _, appPeer := range app.connectedPeers {
 		newSinkAudioFormatConversionDevice := device.NewAudioFormatConversionDevice(
-			inputDeviceProperties,
+			app.propsWithChannel(inputDeviceProperties),
 			appPeer.peer.GetDeviceProperties(),
 		)
 
@@ -326,6 +330,64 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
 func (app *App) JoinRoom(ctx context.Context, roomName string) error {
 	return app.connectionManager.JoinRoom(ctx, roomName)
+}
+
+// propsWithChannel returns a copy of props with StereoChannelIndex set to the app's current preference.
+func (app *App) propsWithChannel(props audiodevice.DeviceProperties) audiodevice.DeviceProperties {
+	props.StereoChannelIndex = app.preferredInputChannel
+	return props
+}
+
+// SetInputChannel sets which physical input channel to use for stereo input devices.
+// idx is 0-based: 0 = Input 1 (left), 1 = Input 2 (right).
+// Re-wires format conversion for all currently connected peers.
+func (app *App) SetInputChannel(idx int) {
+	app.preferredInputChannel = idx
+	if app.AudioInputDevice == nil {
+		return
+	}
+	props := app.propsWithChannel(app.AudioInputDevice.GetDeviceProperties())
+
+	app.connectedPeersMutex.Lock()
+	defer app.connectedPeersMutex.Unlock()
+	for _, appPeer := range app.connectedPeers {
+		newConv := device.NewAudioFormatConversionDevice(props, appPeer.peer.GetDeviceProperties())
+		appPeer.peer.SetStream(newConv.GetStream())
+		newConv.SetStream(app.inputFanOutDevice.GetStream())
+		appPeer.sinkAudioFormatConversionDevice.Close()
+		appPeer.sinkAudioFormatConversionDevice = &newConv
+	}
+}
+
+// GetPreferredInputChannel returns the current 0-based channel index preference (0 = Input 1, 1 = Input 2).
+func (app *App) GetPreferredInputChannel() int {
+	return app.preferredInputChannel
+}
+
+// SetInputGain sets the volume multiplier applied to the local microphone input.
+// 1.0 is unity gain. Use values > 1.0 to boost a quiet input device.
+func (app *App) SetInputGain(gain float32) {
+	app.inputAugmentationDevice.SetVolumeAdjustMagnitude(gain)
+}
+
+// TapInputAudio records raw audio from the local mic input until ctx is cancelled.
+// Returns float32 samples plus the device's sample rate and channel count.
+func (app *App) TapInputAudio(ctx context.Context) ([]float32, int, int, error) {
+	tap := app.inputFanOutDevice.GetStream()
+	props := app.AudioInputDevice.GetDeviceProperties()
+
+	var samples []float32
+	for {
+		select {
+		case <-ctx.Done():
+			return samples, props.SampleRate, props.NumChannels, nil
+		case f, ok := <-tap:
+			if !ok {
+				return samples, props.SampleRate, props.NumChannels, nil
+			}
+			samples = append(samples, f...)
+		}
+	}
 }
 
 // RecordPeerAudio records raw decoded audio from the first connected peer for the given

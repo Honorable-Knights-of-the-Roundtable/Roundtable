@@ -89,14 +89,16 @@ func (d *AudioAugmentationDevice) GetDeviceProperties() audiodevice.DeviceProper
 func (d *AudioAugmentationDevice) SetStream(sourceStream <-chan frame.PCMFrame) {
 	d.sourceStream = sourceStream
 	go func() {
+		defer func() {
+			recover()
+			d.Close()
+		}()
 		for pcmFrame := range d.sourceStream {
 			for _, f := range d.augmentationFunctions {
 				pcmFrame = f(pcmFrame)
 			}
 			d.sinkStream <- pcmFrame
 		}
-		// This goroutine dies when incomingAudioStream is closed.
-		d.Close()
 	}()
 }
 

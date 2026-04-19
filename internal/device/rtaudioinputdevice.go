@@ -2,8 +2,8 @@ package device
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,7 +83,7 @@ func NewRtAudioInputDevice(
 	// Set up stream parameters
 
 	options := rtaudiowrapper.StreamOptions{
-		Flags: rtaudiowrapper.FlagsScheduleRealtime | rtaudiowrapper.FlagsMinimizeLatency,
+		Flags: rtaudiowrapper.FlagsScheduleRealtime,
 	}
 
 	cb := func(out, in rtaudiowrapper.Buffer, dur time.Duration, status rtaudiowrapper.StreamStatus) int {
@@ -98,7 +98,6 @@ func NewRtAudioInputDevice(
 		if inputData == nil {
 			return 0
 		}
-		// Convert float32 slice to PCMFrame (already in correct format)
 		pcmFrame := make(frame.PCMFrame, len(inputData))
 		copy(pcmFrame, inputData)
 		select {

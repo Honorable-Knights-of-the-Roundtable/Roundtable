@@ -5,7 +5,10 @@ import "github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/frame"
 type DeviceProperties struct {
 	SampleRate  int
 	NumChannels int
-	ID			int
+	ID          int
+	// For stereo input devices, which channel to extract when converting to mono.
+	// 0 = left (Input 1), 1 = right (Input 2). Only used when NumChannels == 2.
+	StereoChannelIndex int
 }
 
 // Interface for audio source device, e.g. microphones
