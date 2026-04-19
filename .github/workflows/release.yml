@@ -6,8 +6,54 @@ on:
       - 'v*'
 
 jobs:
+  release-linux:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libopus-dev libasound2-dev g++
+
+      - name: Cache rtaudio native object
+        uses: actions/cache@v4
+        with:
+          path: internal/rtaudiowrapper/rtaudio_go.o
+          key: rtaudio-linux-${{ hashFiles('internal/rtaudiowrapper/lib/rtaudio_go.cpp', 'internal/rtaudiowrapper/build.go') }}
+
+      - name: Compile rtaudio native library
+        working-directory: internal/rtaudiowrapper
+        run: go generate .
+
+      - name: Build
+        run: go build -o roundtable ./cmd
+
+      - name: Package release
+        run: |
+          mkdir release
+          cp roundtable release/
+          cp cmd/config.yaml release/
+          zip -j roundtable-${{ github.ref_name }}-linux.zip release/*
+
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create ${{ github.ref_name }}
+          roundtable-${{ github.ref_name }}-linux.zip
+          --title "${{ github.ref_name }}"
+          --generate-notes
+
   release-windows:
     runs-on: windows-latest
+    needs: release-linux
     permissions:
       contents: write
     steps:
@@ -62,11 +108,7 @@ jobs:
           cp /mingw64/bin/libwinpthread-1.dll release/
           zip -j roundtable-${{ github.ref_name }}-windows.zip release/*
 
-      - name: Create release
+      - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create ${{ github.ref_name }}
-          roundtable-${{ github.ref_name }}-windows.zip
-          --title "${{ github.ref_name }}"
-          --generate-notes
+        run: gh release upload ${{ github.ref_name }} roundtable-${{ github.ref_name }}-windows.zip
