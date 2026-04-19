@@ -16,39 +16,38 @@ import (
 )
 
 const defaultFile = "recordings/default.wav"
+
 var currentFile string
 var selectedDeviceID int = -1 // -1 means use default
 var useLoopback bool = false  // Enable WASAPI loopback mode for system audio capture
 
-
-
 func print_devices() {
-			audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-			}
-			defer audio.Destroy()
+	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
+	}
+	defer audio.Destroy()
 
-			devices, err := audio.Devices()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "%s", err)
-			}
+	devices, err := audio.Devices()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s", err)
+	}
 
-			fmt.Printf("\nAvailable Audio Devices:\n")
-			fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
-			fmt.Printf("%s\n", strings.Repeat("-", 85))
-			for i, device := range devices {
-				inputCh := fmt.Sprintf("%d", device.NumInputChannels)
-				outputCh := fmt.Sprintf("%d", device.NumOutputChannels)
-				marker := ""
-				if i == audio.DefaultInputDeviceId() {
-					marker = " [DEFAULT IN]"
-				}
-				duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
-				fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", i, device.Name, inputCh, outputCh, duplexCh, marker)
-			}
-			fmt.Printf("Use 'select' to choose a device for recording\n")
+	fmt.Printf("\nAvailable Audio Devices:\n")
+	fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
+	fmt.Printf("%s\n", strings.Repeat("-", 85))
+	for i, device := range devices {
+		inputCh := fmt.Sprintf("%d", device.NumInputChannels)
+		outputCh := fmt.Sprintf("%d", device.NumOutputChannels)
+		marker := ""
+		if i == audio.DefaultInputDeviceId() {
+			marker = " [DEFAULT IN]"
 		}
+		duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
+		fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", i, device.Name, inputCh, outputCh, duplexCh, marker)
+	}
+	fmt.Printf("Use 'select' to choose a device for recording\n")
+}
 
 func repl() {
 	scanner := bufio.NewScanner(os.Stdin)
@@ -117,9 +116,9 @@ func repl() {
 				fmt.Fprintf(os.Stderr, "Error playing file: %v\n", err)
 				os.Exit(1)
 			}
-		case "devices": 
+		case "devices":
 			fallthrough
-		case "list": 
+		case "list":
 			print_devices()
 
 		case "select":
@@ -279,7 +278,7 @@ func repl() {
 
 }
 
-func Record(outpath string)  {
+func Record(outpath string) {
 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
 	if err != nil {
 		log.Fatal(err)
@@ -400,7 +399,7 @@ func Record(outpath string)  {
 		// Debug: Check audio levels periodically (every 50 callbacks ~= every 0.5 seconds at 48kHz)
 		if callbackCount <= 5 || callbackCount%50 == 0 {
 			var maxSample int16 = 0
-			for i := range inputData{
+			for i := range inputData {
 				if inputData[i] > maxSample {
 					maxSample = inputData[i]
 				} else if -inputData[i] > maxSample {
@@ -437,7 +436,7 @@ func Record(outpath string)  {
 
 	err = audio.Start()
 	if err != nil {
-		log.Fatal("Audio failed to start\n",err)
+		log.Fatal("Audio failed to start\n", err)
 	}
 
 	// Create a channel to signal when user wants to stop
@@ -474,8 +473,6 @@ cleanup:
 	}
 	fmt.Printf("Successfully wrote %s\n", outpath)
 }
-
-
 
 func main() {
 	repl()
@@ -523,4 +520,3 @@ func main() {
 	// 	os.Exit(1)
 	// }
 }
-

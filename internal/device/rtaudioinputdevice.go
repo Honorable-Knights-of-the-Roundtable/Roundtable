@@ -2,8 +2,8 @@ package device
 
 import (
 	"context"
-	"log/slog"
 	"fmt"
+	"log/slog"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -168,6 +168,6 @@ func (d *RtAudioInputDevice) GetDeviceProperties() audiodevice.DeviceProperties 
 	return audiodevice.DeviceProperties{
 		SampleRate:  int(d.sampleRate),
 		NumChannels: d.numChannels,
-		ID: 		 d.DeviceID,
+		ID:          d.DeviceID,
 	}
 }

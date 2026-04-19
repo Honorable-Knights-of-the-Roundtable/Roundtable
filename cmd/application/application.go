@@ -79,7 +79,6 @@ type App struct {
 	// | ---------------------- ApplicationPeer ---------------------- |    | -------------------- Application -------------------- |
 	// [ Peer -> AudioFormatConversionDevice -> AudioAugmentationDevice] -> FanInDevice -> Client's audio output device (e.g. speaker)
 
-
 	// TODO: Perhaps this shouldn't be public, but a getter would have no purpose other than returning this
 	// The audio output device, i.e. the speaker of choice
 	AudioOutputDevice audiodevice.AudioSinkDevice

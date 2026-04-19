@@ -1,22 +1,21 @@
 package main
 
 import (
-	"context"
 	"bufio"
-	"path/filepath"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
-	"log/slog"
 	"log"
+	"log/slog"
+	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
-	"strings"
-	"net"
-
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/config"
@@ -33,8 +32,8 @@ import (
 	// "github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
 	"github.com/google/uuid"
-	"github.com/pion/webrtc/v4"
 	"github.com/pion/stun/v3"
+	"github.com/pion/webrtc/v4"
 	"github.com/spf13/viper"
 )
 
@@ -137,14 +136,12 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 	return manager
 }
 
-
 const defaultFile = "recordings/default.wav"
 const micTestFile = "recordings/micTestFile.wav"
+
 var currentFile string
 var selectedDeviceID int = -1 // -1 means use default
 var useLoopback bool = false  // Enable WASAPI loopback mode for system audio capture
-
-
 
 func print_devices() {
 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
@@ -174,8 +171,7 @@ func print_devices() {
 	fmt.Printf("Use 'select' to choose a device for recording\n")
 }
 
-
-func Record(outpath string)  {
+func Record(outpath string) {
 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
 	if err != nil {
 		log.Fatal(err)
@@ -256,7 +252,7 @@ func Record(outpath string)  {
 		// Debug: Check audio levels periodically (every 50 callbacks ~= every 0.5 seconds at 48kHz)
 		if callbackCount <= 5 || callbackCount%50 == 0 {
 			var maxSample int16 = 0
-			for i := range inputData{
+			for i := range inputData {
 				if inputData[i] > maxSample {
 					maxSample = inputData[i]
 				} else if -inputData[i] > maxSample {
@@ -293,7 +289,7 @@ func Record(outpath string)  {
 
 	err = audio.Start()
 	if err != nil {
-		log.Fatal("Audio failed to start\n",err)
+		log.Fatal("Audio failed to start\n", err)
 	}
 
 	// Create a channel to signal when user wants to stop
@@ -331,7 +327,6 @@ cleanup:
 	fmt.Printf("Successfully wrote %s\n", outpath)
 }
 
-
 func printCommands() {
 	fmt.Fprintf(os.Stderr, "Available commands:\n")
 	fmt.Fprintf(os.Stderr, "    join <room>        - Join a room and connect to everyone in it\n")
@@ -343,7 +338,7 @@ func printCommands() {
 }
 
 func newLocalPeerIdentifier() signalling.PeerIdentifier {
-	return signalling.PeerIdentifier {
+	return signalling.PeerIdentifier{
 		Uuid:     uuid.New(),
 		PublicIP: "", // In a real client, one would need to query a STUN server to retrieve this
 	}
@@ -364,27 +359,28 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		cmd := strings.TrimSpace(scanner.Text())
 
 		switch cmd {
-		case "join": {
-			parts := strings.SplitN(cmd, " ", 2)
-			var roomName string
-			if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-				roomName = strings.TrimSpace(parts[1])
-			} else {
-				fmt.Printf("Enter room name: ")
-				if !scanner.Scan() {
+		case "join":
+			{
+				parts := strings.SplitN(cmd, " ", 2)
+				var roomName string
+				if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+					roomName = strings.TrimSpace(parts[1])
+				} else {
+					fmt.Printf("Enter room name: ")
+					if !scanner.Scan() {
+						break
+					}
+					roomName = strings.TrimSpace(scanner.Text())
+				}
+				if roomName == "" {
+					fmt.Fprintf(os.Stderr, "room name cannot be empty\n")
 					break
 				}
-				roomName = strings.TrimSpace(scanner.Text())
+				ctx := context.Background()
+				if err := app.JoinRoom(ctx, roomName); err != nil {
+					slog.Error("error joining room", "room", roomName, "err", err)
+				}
 			}
-			if roomName == "" {
-				fmt.Fprintf(os.Stderr, "room name cannot be empty\n")
-				break
-			}
-			ctx := context.Background()
-			if err := app.JoinRoom(ctx, roomName); err != nil {
-				slog.Error("error joining room", "room", roomName, "err", err)
-			}
-		}
 		case "record-peer":
 			duration := 5 * time.Second
 			outPath := "recordings/peer_raw.wav"
@@ -397,8 +393,12 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			// Convert float32 → int16 for WAV
 			int16Samples := make([]int16, len(samples))
 			for i, s := range samples {
-				if s > 1.0 { s = 1.0 }
-				if s < -1.0 { s = -1.0 }
+				if s > 1.0 {
+					s = 1.0
+				}
+				if s < -1.0 {
+					s = -1.0
+				}
 				int16Samples[i] = int16(s * 32767)
 			}
 			if err := os.MkdirAll("recordings", 0755); err != nil {
@@ -413,14 +413,17 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			fmt.Printf("Saved %d samples (%dHz, %dch) to %s\n", len(samples), sampleRate, numChannels, outPath)
 			fmt.Printf("Play it back with: play %s\n", outPath)
 
-		case "stun": {
-			stunme()
-		}
-		case "close": fallthrough
-		case "exit": {
-			// app.Close()
-			return
-		}
+		case "stun":
+			{
+				stunme()
+			}
+		case "close":
+			fallthrough
+		case "exit":
+			{
+				// app.Close()
+				return
+			}
 
 		case "test":
 			dir := filepath.Dir(micTestFile)
@@ -438,9 +441,9 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 				os.Exit(1)
 			}
 
-		case "devices": 
+		case "devices":
 			fallthrough
-		case "list": 
+		case "list":
 			print_devices()
 
 		case "select":
@@ -457,7 +460,7 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			}
 			selectedDeviceID = deviceID
 			devices := api.InputDevices()
-			newDev, err:=api.InitInputDeviceFromID(devices[deviceID])
+			newDev, err := api.InitInputDeviceFromID(devices[deviceID])
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Invalid device\n")
 				break
@@ -513,7 +516,6 @@ func main() {
 		return
 	}
 
-
 	localPeerIdentifier := newLocalPeerIdentifier()
 	jsonID, _ := json.Marshal(localPeerIdentifier)
 	fmt.Printf("Your peer ID: %s\n", base64.StdEncoding.EncodeToString(jsonID))
@@ -538,4 +540,3 @@ func main() {
 	app.Close()
 
 }
-

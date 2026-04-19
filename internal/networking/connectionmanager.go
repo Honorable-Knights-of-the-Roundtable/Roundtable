@@ -126,9 +126,9 @@ func NewConnectionManager(
 		connectionConfiguration: connectionConfig,
 		connectionOfferOptions:  connectionOfferOptions,
 		connectionAnswerOptions: connectionAnswerOptions,
-		ws:                   ws,
-		pendingDials:         make(map[uuid.UUID]chan signalling.SignallingAnswer),
-		ConnectedPeerChannel: make(chan *peer.Peer),
+		ws:                      ws,
+		pendingDials:            make(map[uuid.UUID]chan signalling.SignallingAnswer),
+		ConnectedPeerChannel:    make(chan *peer.Peer),
 	}
 
 	// Register our ID with the signalling server so it can route messages to us

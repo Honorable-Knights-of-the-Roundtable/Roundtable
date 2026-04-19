@@ -36,7 +36,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func Record(outpath string, inputDevice audiodevice.AudioSourceDevice )  {
+func Record(outpath string, inputDevice audiodevice.AudioSourceDevice) {
 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
 	if err != nil {
 		log.Fatal(err)
@@ -99,7 +99,7 @@ func Record(outpath string, inputDevice audiodevice.AudioSourceDevice )  {
 		// Debug: Check audio levels periodically (every 50 callbacks ~= every 0.5 seconds at 48kHz)
 		if callbackCount <= 5 || callbackCount%50 == 0 {
 			var maxSample int16 = 0
-			for i := range inputData{
+			for i := range inputData {
 				if inputData[i] > maxSample {
 					maxSample = inputData[i]
 				} else if -inputData[i] > maxSample {
@@ -136,7 +136,7 @@ func Record(outpath string, inputDevice audiodevice.AudioSourceDevice )  {
 
 	err = audio.Start()
 	if err != nil {
-		log.Fatal("Audio failed to start\n",err)
+		log.Fatal("Audio failed to start\n", err)
 	}
 
 	// Create a channel to signal when user wants to stop
@@ -232,6 +232,7 @@ func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) 
 
 const defaultFile = "recordings/default.wav"
 const micTestFile = "recordings/micTestFile.wav"
+
 var currentFile string
 var selectedDeviceID int = -1 // -1 means use default
 
@@ -333,44 +334,42 @@ func printOutputDevices(api *audioapi.RtAudioApi) {
 	}
 }
 
-
-
 func newLocalPeerIdentifier() signalling.PeerIdentifier {
-	return signalling.PeerIdentifier {
+	return signalling.PeerIdentifier{
 		Uuid:     uuid.New(),
 		PublicIP: "", // In a real client, one would need to query a STUN server to retrieve this
 	}
 }
 
-// func changeInputDeviceFromId(id int) {
-// 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	defer audio.Destroy()
+//	func changeInputDeviceFromId(id int) {
+//		audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
+//		if err != nil {
+//			log.Fatal(err)
+//		}
+//		defer audio.Destroy()
 //
-// 	devices, err := audio.Devices()
-// 	for _, device := range devices {
-// 		fmt.Println(device.String())
-// 	}
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
+//		devices, err := audio.Devices()
+//		for _, device := range devices {
+//			fmt.Println(device.String())
+//		}
+//		if err != nil {
+//			log.Fatal(err)
+//		}
 //
-// 	var inputDevice rtaudiowrapper.DeviceInfo
+//		var inputDevice rtaudiowrapper.DeviceInfo
 //
-// 	// Normal input recording mode
-// 	if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-// 		inputDevice = devices[selectedDeviceID]
-// 	} else {
-// 		inputDevice = audio.DefaultInputDevice()
-// 		fmt.Printf("Recording from default device: %s\n", inputDevice.Name)
-// 	}
+//		// Normal input recording mode
+//		if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
+//			inputDevice = devices[selectedDeviceID]
+//		} else {
+//			inputDevice = audio.DefaultInputDevice()
+//			fmt.Printf("Recording from default device: %s\n", inputDevice.Name)
+//		}
 //
-// 	if inputDevice.NumInputChannels == 0 {
-// 		log.Fatal("Selected device has no input channels. Choose a different device.")
-// 	}
-// }
+//		if inputDevice.NumInputChannels == 0 {
+//			log.Fatal("Selected device has no input channels. Choose a different device.")
+//		}
+//	}
 func join(cmd string, app *application.App) {
 	scanner := bufio.NewScanner(os.Stdin)
 	parts := strings.SplitN(cmd, " ", 2)
@@ -406,8 +405,12 @@ func recordPeer(app *application.App) {
 	// Convert float32 → int16 for WAV
 	int16Samples := make([]int16, len(samples))
 	for i, s := range samples {
-		if s > 1.0 { s = 1.0 }
-		if s < -1.0 { s = -1.0 }
+		if s > 1.0 {
+			s = 1.0
+		}
+		if s < -1.0 {
+			s = -1.0
+		}
 		int16Samples[i] = int16(s * 32767)
 	}
 	if err := os.MkdirAll("recordings", 0755); err != nil {
@@ -493,7 +496,7 @@ func micTest(app *application.App) {
 	}
 }
 
-func selectDevice(api *audioapi.RtAudioApi, app *application.App, devices []audioapi.AudioIODevice){
+func selectDevice(api *audioapi.RtAudioApi, app *application.App, devices []audioapi.AudioIODevice) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("Enter device ID: ")
 	if !scanner.Scan() {
@@ -517,7 +520,6 @@ func selectDevice(api *audioapi.RtAudioApi, app *application.App, devices []audi
 		fmt.Printf("Invalid Device Id, device remains the same\n")
 	}
 }
-	
 
 func selectInput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.InputDevices()
@@ -667,7 +669,6 @@ func main() {
 		slog.Error("error while creating rtaudio api", "err", err)
 		return
 	}
-
 
 	localPeerIdentifier := newLocalPeerIdentifier()
 	jsonID, _ := json.Marshal(localPeerIdentifier)
