@@ -3,6 +3,7 @@ package audioapi
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	internaldevice "github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/device"
@@ -49,6 +50,9 @@ func (api *RtAudioApi) InputDevices() []AudioIODevice {
 	inputDevices := make([]AudioIODevice, 0)
 
 	for _, d := range devices {
+		if strings.HasPrefix(d.Name, "RtApiJack") {
+			continue // skip our own internal JACK clients
+		}
 		if d.NumInputChannels > 0 {
 			inputDevice := AudioIODevice{
 				ID:   d.ID,
@@ -76,6 +80,9 @@ func (api *RtAudioApi) OutputDevices() []AudioIODevice {
 	outputDevices := make([]AudioIODevice, 0)
 
 	for _, d := range devices {
+		if strings.HasPrefix(d.Name, "RtApiJack") {
+			continue // skip our own internal JACK clients
+		}
 		if d.NumOutputChannels > 0 {
 			outputDevice := AudioIODevice{
 				ID:   d.ID,
@@ -101,23 +108,23 @@ func (api *RtAudioApi) InitInputDeviceFromID(ioDevice AudioIODevice) (audiodevic
 		return nil, fmt.Errorf("failed to create audio interface: %w", err)
 	}
 
-	// Find Picked Device
 	devices, err := audio.Devices()
 	if err != nil {
 		slog.Error("failed to get devices", "err", err)
 		return nil, fmt.Errorf("failed to get devices: %w", err)
 	}
 
+	// Match by name rather than ID: JACK assigns IDs per-instance so they can
+	// differ between the listing probe and this new stream instance.
 	var currentDevice *rtaudiowrapper.DeviceInfo
 	for _, d := range devices {
-
-		if d.ID == ioDevice.ID {
+		if d.Name == ioDevice.Name {
 			currentDevice = &d
 			break
 		}
 	}
 	if currentDevice == nil {
-		return nil, fmt.Errorf("device with ID %d not found", ioDevice.ID)
+		return nil, fmt.Errorf("device %q not found", ioDevice.Name)
 	}
 
 	device, err := internaldevice.NewRtAudioInputDevice(currentDevice, api.frameDuration, audio)
@@ -162,16 +169,17 @@ func (api *RtAudioApi) InitOutputDeviceFromID(ioDevice AudioIODevice) (audiodevi
 	// 	fmt.Println(d)
 	// }
 
+	// Match by name rather than ID: JACK assigns IDs per-instance so they can
+	// differ between the listing probe and this new stream instance.
 	var currentDevice *rtaudiowrapper.DeviceInfo
 	for _, d := range devices {
-
-		if d.ID == ioDevice.ID {
+		if d.Name == ioDevice.Name {
 			currentDevice = &d
 			break
 		}
 	}
 	if currentDevice == nil {
-		return nil, fmt.Errorf("device with ID %d not found", ioDevice.ID)
+		return nil, fmt.Errorf("device %q not found", ioDevice.Name)
 	}
 
 	device, err := internaldevice.NewRtAudioOutputDevice(currentDevice, api.frameDuration, audio)

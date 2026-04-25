@@ -48,12 +48,14 @@ git_submodule_build_rtaudiowrapper:
 # 
 # Example building can be found in the respective example directory
 
-build:
+build: 
 	go build -o bin/roundtable.exe cmd/main.go && cp cmd/config.yaml bin
-run:
+run: build
 	cd bin && ./roundtable.exe
 
 # TODO: Tags? rtaudio include/exclude tag?
 
 clean:
 	rm bin/*
+
+.PHONY: build run

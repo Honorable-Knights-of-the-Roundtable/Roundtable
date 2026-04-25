@@ -21,6 +21,7 @@ type RtAudioInputDevice struct {
 	uuid   uuid.UUID
 
 	audio        rtaudiowrapper.RtAudio
+	name         string
 	sampleRate   uint
 	numChannels  int
 	dataChannel  chan frame.PCMFrame
@@ -68,6 +69,7 @@ func NewRtAudioInputDevice(
 		logger:        logger,
 		uuid:          uuid,
 		DeviceID:      deviceInfo.ID,
+		name:          deviceInfo.Name,
 		audio:         audio,
 		sampleRate:    sampleRate,
 		numChannels:   numChannels,
@@ -170,6 +172,7 @@ func (d *RtAudioInputDevice) Close() {
 // GetDeviceProperties returns the audio properties (sample rate, channels) of this device.
 func (d *RtAudioInputDevice) GetDeviceProperties() audiodevice.DeviceProperties {
 	return audiodevice.DeviceProperties{
+		Name:        d.name,
 		SampleRate:  int(d.sampleRate),
 		NumChannels: d.numChannels,
 		ID:          d.DeviceID,
