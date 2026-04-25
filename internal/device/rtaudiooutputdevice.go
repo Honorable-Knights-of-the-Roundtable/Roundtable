@@ -43,6 +43,10 @@ func NewRtAudioOutputDevice(
 	name := deviceInfo.Name
 	sampleRate := int(deviceInfo.PreferredSampleRate)
 	channels := deviceInfo.NumOutputChannels
+	if channels > 2 {
+		logger.Warn("output device reports unusual channel count, clamping to 2", "device", name, "reported", channels)
+		channels = 2
+	}
 	bufferFrames := uint(int(sampleRate) * int(frameDuration) / int(time.Second))
 
 	logger.Debug(

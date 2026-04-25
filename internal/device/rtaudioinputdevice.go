@@ -45,6 +45,10 @@ func NewRtAudioInputDevice(
 
 	name := deviceInfo.Name
 	numChannels := deviceInfo.NumInputChannels
+	if numChannels > 2 {
+		slog.Warn("input device reports unusual channel count, clamping to 2", "device", name, "reported", numChannels)
+		numChannels = 2
+	}
 	sampleRate := deviceInfo.PreferredSampleRate
 
 	ctx, ctxCancelFunc := context.WithCancel(context.Background())
