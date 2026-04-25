@@ -286,17 +286,24 @@ func printInputDevices(api *audioapi.RtAudioApi) {
 	fmt.Printf("%s\n", strings.Repeat("-", 85))
 	for i, device := range devices {
 		if device.NumInputChannels > 0 {
-			inputCh := fmt.Sprintf("%d", device.NumInputChannels)
-			outputCh := fmt.Sprintf("%d", device.NumOutputChannels)
+			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
+			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
 			marker := ""
 			if i == audio.DefaultInputDeviceId() {
 				marker = " [DEFAULT IN]"
 			}
-			duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
+			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
 			fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", found, device.Name, inputCh, outputCh, duplexCh, marker)
 			found += 1
 		}
 	}
+}
+
+func clampChannels(n int) int {
+	if n > 2 {
+		return 2
+	}
+	return n
 }
 
 // TODO: Convert to general api
@@ -313,21 +320,20 @@ func printOutputDevices(api *audioapi.RtAudioApi) {
 		fmt.Fprintf(os.Stderr, "%s", err)
 	}
 
-	fmt.Printf("\nAvailable Input Devices:\n")
+	fmt.Printf("\nAvailable Output Devices:\n")
 	fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
 	fmt.Printf("%s\n", strings.Repeat("-", 85))
 
 	found := 0
 	for i, device := range devices {
-
 		if device.NumOutputChannels > 0 {
-			inputCh := fmt.Sprintf("%d", device.NumInputChannels)
-			outputCh := fmt.Sprintf("%d", device.NumOutputChannels)
+			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
+			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
 			marker := ""
-			if i == audio.DefaultInputDeviceId() {
-				marker = " [DEFAULT IN]"
+			if i == audio.DefaultOutputDeviceId() {
+				marker = " [DEFAULT OUT]"
 			}
-			duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
+			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
 			fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", found, device.Name, inputCh, outputCh, duplexCh, marker)
 			found += 1
 		}
@@ -496,41 +502,81 @@ func micTest(app *application.App) {
 	}
 }
 
-func selectDevice(api *audioapi.RtAudioApi, app *application.App, devices []audioapi.AudioIODevice) {
+func readDeviceID(devices []audioapi.AudioIODevice) (int, bool) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("Enter device ID: ")
 	if !scanner.Scan() {
-		return
+		return 0, false
 	}
-	var selectedDeviceID int
-	_, err := fmt.Sscanf(strings.TrimSpace(scanner.Text()), "%d", &selectedDeviceID)
-	if err != nil {
+	var id int
+	if _, err := fmt.Sscanf(strings.TrimSpace(scanner.Text()), "%d", &id); err != nil {
 		fmt.Fprintf(os.Stderr, "Invalid device ID\n")
-		return
+		return 0, false
 	}
+	if id < 0 || id >= len(devices) {
+		fmt.Fprintf(os.Stderr, "Invalid device ID, device remains the same\n")
+		return 0, false
+	}
+	return id, true
+}
 
-	if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-		newDev, err := api.InitInputDeviceFromID(devices[selectedDeviceID])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to init DeviceFromId with error: %v \n", err)
-			return
-		}
-		app.SetInputDevice(newDev)
-	} else {
-		fmt.Printf("Invalid Device Id, device remains the same\n")
+func printDevFromID(id int) string{
+	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
 	}
+	defer audio.Destroy()
+
+	devices, err := audio.Devices()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s", err)
+	}
+	for _, device := range devices {
+		if id == device.ID {
+			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
+			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
+			marker := ""
+			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
+			return fmt.Sprintf("%-50s %-8s %-8s %-8s%s", device.Name, inputCh, outputCh, duplexCh, marker)
+		}
+	}
+	return "non found"
 }
 
 func selectInput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.InputDevices()
+	currentDev := printDevFromID(app.AudioInputDevice.GetDeviceProperties().ID)
+	fmt.Println("Current Input Device:", currentDev)
 	printInputDevices(api)
-	selectDevice(api, app, devices)
+	id, ok := readDeviceID(devices)
+	if !ok {
+		return
+	}
+	newDev, err := api.InitInputDeviceFromID(devices[id])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to init input device: %v\n", err)
+		return
+	}
+	app.SetInputDevice(newDev)
 }
 
 func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.OutputDevices()
+	currentDev := printDevFromID(app.AudioOutputDevice.GetDeviceProperties().ID)
+	fmt.Println("Current Output Device:", currentDev)
+	// fmt.Println("Current Output Device: %v\n", app.AudioOutputDevice.GetDeviceProperties())
+
 	printOutputDevices(api)
-	selectDevice(api, app, devices)
+	id, ok := readDeviceID(devices)
+	if !ok {
+		return
+	}
+	newDev, err := api.InitOutputDeviceFromID(devices[id])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to init output device: %v\n", err)
+		return
+	}
+	app.SetOutputDevice(newDev)
 }
 
 func printCommands() {
