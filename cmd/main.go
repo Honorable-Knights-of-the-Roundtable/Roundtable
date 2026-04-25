@@ -3,8 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -236,69 +234,6 @@ const micTestFile = "recordings/micTestFile.wav"
 var currentFile string
 var selectedDeviceID int = -1 // -1 means use default
 
-// TODO: Convert to general api
-func print_devices() {
-	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-	}
-	defer audio.Destroy()
-
-	devices, err := audio.Devices()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
-	}
-
-	fmt.Printf("\nAvailable Audio Devices:\n")
-	fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
-	fmt.Printf("%s\n", strings.Repeat("-", 85))
-
-	for i, device := range devices {
-		inputCh := fmt.Sprintf("%d", device.NumInputChannels)
-		outputCh := fmt.Sprintf("%d", device.NumOutputChannels)
-		marker := ""
-		if i == audio.DefaultInputDeviceId() {
-			marker = " [DEFAULT IN]"
-		}
-		duplexCh := fmt.Sprintf("%d", device.NumDuplexChannels)
-		fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", i, device.Name, inputCh, outputCh, duplexCh, marker)
-	}
-	fmt.Printf("Use 'select' to choose a device for recording\n")
-}
-
-// TODO: Convert to general api
-func printInputDevices(api *audioapi.RtAudioApi) {
-
-	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-	}
-	defer audio.Destroy()
-
-	devices, err := audio.Devices()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
-	}
-
-	found := 0
-	fmt.Printf("\nAvailable Input Devices:\n")
-	fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
-	fmt.Printf("%s\n", strings.Repeat("-", 85))
-	for i, device := range devices {
-		if device.NumInputChannels > 0 {
-			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
-			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
-			marker := ""
-			if i == audio.DefaultInputDeviceId() {
-				marker = " [DEFAULT IN]"
-			}
-			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
-			fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", found, device.Name, inputCh, outputCh, duplexCh, marker)
-			found += 1
-		}
-	}
-}
-
 func clampChannels(n int) int {
 	if n > 2 {
 		return 2
@@ -306,44 +241,10 @@ func clampChannels(n int) int {
 	return n
 }
 
-// TODO: Convert to general api
-func printOutputDevices(api *audioapi.RtAudioApi) {
-
-	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-	}
-	defer audio.Destroy()
-
-	devices, err := audio.Devices()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
-	}
-
-	fmt.Printf("\nAvailable Output Devices:\n")
-	fmt.Printf("%-4s %-50s %-8s %-8s %-8s\n", "ID", "Name", "In", "Out", "Duplex")
-	fmt.Printf("%s\n", strings.Repeat("-", 85))
-
-	found := 0
-	for i, device := range devices {
-		if device.NumOutputChannels > 0 {
-			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
-			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
-			marker := ""
-			if i == audio.DefaultOutputDeviceId() {
-				marker = " [DEFAULT OUT]"
-			}
-			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
-			fmt.Printf("%-4d %-50s %-8s %-8s %-8s%s\n", found, device.Name, inputCh, outputCh, duplexCh, marker)
-			found += 1
-		}
-	}
-}
-
 func newLocalPeerIdentifier() signalling.PeerIdentifier {
 	return signalling.PeerIdentifier{
 		Uuid:     uuid.New(),
-		PublicIP: "", // In a real client, one would need to query a STUN server to retrieve this
+		PublicIP: "", 
 	}
 }
 
@@ -463,6 +364,7 @@ func micTest(app *application.App) {
 	}
 	fmt.Printf("Recorded %d samples, peak level: %.2f%%\n", len(samples), peak*100)
 
+
 	// Mix stereo down to mono using the user's selected channel so both ears hear the playback.
 	if numChannels == 2 {
 		ch := app.GetPreferredInputChannel()
@@ -490,13 +392,15 @@ func micTest(app *application.App) {
 		FrameCounter: len(int16Samples) / numChannels,
 		Channels:     numChannels,
 	}
+
 	if err := rtaudiowrapper.WriteWavFile(micTestFile, data, uint32(sampleRate), 16); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing file: %v\n", err)
 		return
 	}
 
 	fmt.Printf("Playing from: %s\n", micTestFile)
-	if err := rtaudiowrapper.Speaker(micTestFile); err != nil {
+	outputDeviceName := app.AudioOutputDevice.GetDeviceProperties().Name
+	if err := rtaudiowrapper.Speaker(micTestFile, outputDeviceName); err != nil {
 		fmt.Fprintf(os.Stderr, "Error playing file: %v\n", err)
 		os.Exit(1)
 	}
@@ -543,11 +447,21 @@ func printDevFromID(id int) string{
 	return "non found"
 }
 
+func printDevices(devices []audioapi.AudioIODevice) string {
+	var sb strings.Builder
+	for i, dev := range devices {
+		inputCh := fmt.Sprintf("%d", clampChannels(dev.DeviceProperties.NumChannels))
+		fmt.Fprintf(&sb, "%-4d %-50s %-8s \n",i, dev.Name, inputCh)
+	}
+
+	return sb.String()
+}
+
 func selectInput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.InputDevices()
 	currentDev := printDevFromID(app.AudioInputDevice.GetDeviceProperties().ID)
 	fmt.Println("Current Input Device:", currentDev)
-	printInputDevices(api)
+	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
@@ -564,9 +478,7 @@ func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
 	devices := api.OutputDevices()
 	currentDev := printDevFromID(app.AudioOutputDevice.GetDeviceProperties().ID)
 	fmt.Println("Current Output Device:", currentDev)
-	// fmt.Println("Current Output Device: %v\n", app.AudioOutputDevice.GetDeviceProperties())
-
-	printOutputDevices(api)
+	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
@@ -584,9 +496,6 @@ func printCommands() {
 	fmt.Fprintf(os.Stderr, "    join <room>        - Join a room and connect to everyone in it\n")
 	fmt.Fprintf(os.Stderr, "    record-peer [secs] - Record raw incoming audio from first peer to a WAV file\n")
 	fmt.Fprintf(os.Stderr, "    test               - Test current audio device\n")
-	fmt.Fprintf(os.Stderr, "    devices            - List all audio devices\n")
-	fmt.Fprintf(os.Stderr, "    listInput          - List all input audio devices\n")
-	fmt.Fprintf(os.Stderr, "    listOutput         - List all output audio devices\n")
 	fmt.Fprintf(os.Stderr, "    input              - Select input audio device\n")
 	fmt.Fprintf(os.Stderr, "    output              - Select output audio device\n")
 	fmt.Fprintf(os.Stderr, "    channel <1|2>      - Select input channel for stereo devices (default: 1)\n")
@@ -622,16 +531,10 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		switch cmd {
 		case "join":
 			join(line, app)
-		case "devices":
-			print_devices()
-		case "listInput":
-			printInputDevices(api)
 		case "input":
 			selectInput(api, app)
 		case "output":
 			selectOutput(api, app)
-		case "listOutput":
-			printOutputDevices(api)
 		case "record-peer":
 			recordPeer(app)
 		case "test":
@@ -716,9 +619,10 @@ func main() {
 		return
 	}
 
-	localPeerIdentifier := newLocalPeerIdentifier()
-	jsonID, _ := json.Marshal(localPeerIdentifier)
-	fmt.Printf("Your peer ID: %s\n", base64.StdEncoding.EncodeToString(jsonID))
+	localPeerIdentifier := signalling.PeerIdentifier{
+		Uuid:     uuid.New(),
+		PublicIP: "", 
+	}
 
 	connectionManager := initializeConnectionManager(localPeerIdentifier)
 
