@@ -29,6 +29,8 @@ func NewRtAudioApi(frameDuration time.Duration) (*RtAudioApi, error) {
 		logger.Error("failed to create rtaudio interface", "err", err)
 	}
 
+	slog.Info("audio backend selected", "api", audio.CurrentAPI().String())
+
 	return &RtAudioApi{
 		logger:        logger,
 		audio:         audio,
