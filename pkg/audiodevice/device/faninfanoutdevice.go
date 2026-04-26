@@ -260,11 +260,7 @@ func NewFanInDevice(properties audiodevice.DeviceProperties, frameDuration time.
 
 func (d *FanInDevice) startListening() {
 	go func() {
-
-		// We know how large a frame we expected based on the ticker
 		expectedFrameLength := d.deviceProperties.NumChannels * d.deviceProperties.SampleRate * int(d.frameDuration) / int(time.Second)
-
-		// Define the start index of the current output frame
 		sinkBufferHead := 0
 
 		listenTicker := time.NewTicker(d.frameDuration)
@@ -276,55 +272,37 @@ func (d *FanInDevice) startListening() {
 				return
 			}
 
-			// The index into the sink buffer at which the frame to be sent ends
-			// The counterpart ot sinkBufferHead
 			sinkBufferTail := sinkBufferHead + expectedFrameLength
-
-			// Check if the largest possible buffer (something of expectedFrameSize)
-			// would overrun the sinkBuffer
 			if sinkBufferTail > len(d.sinkBuffer) {
 				copy(d.sinkBuffer, d.sinkBuffer[sinkBufferHead:])
 				sinkBufferHead = 0
 				sinkBufferTail = expectedFrameLength
 			}
 
-			// Zero out the current frame to be sent
 			clear(d.sinkBuffer[sinkBufferHead:sinkBufferTail])
 
-			// Read frames in from each source (or at least as much as we can)
 			d.sourcesMutex.Lock()
 			for _, source := range d.sources {
-
 				source.mutex.Lock()
-
-				// If there is not enough data to fill the frame, don't take anything.
-				if source.bufferTail-source.bufferHead < expectedFrameLength {
+				available := source.bufferTail - source.bufferHead
+				if available == 0 {
 					source.mutex.Unlock()
 					continue
 				}
-
-				// It is weird, but okay to unlock immediately after this,
-				// since all we *really* care about in concurrency terms is the position of Tail
-				// The underlying data may change, but that's just going to cause glitchy audio,
-				// not differing frame lengths
-
-				frame := source.buffer[source.bufferHead : source.bufferHead+expectedFrameLength]
-				source.bufferHead += expectedFrameLength
+				toRead := min(available, expectedFrameLength)
+				frame := source.buffer[source.bufferHead : source.bufferHead+toRead]
+				source.bufferHead += toRead
 				source.mutex.Unlock()
-
-				for frameIndex := 0; frameIndex < expectedFrameLength; frameIndex += 1 {
-					d.sinkBuffer[sinkBufferHead+frameIndex] += frame[frameIndex]
+				for i := 0; i < toRead; i++ {
+					d.sinkBuffer[sinkBufferHead+i] += frame[i]
 				}
 			}
 			d.sourcesMutex.Unlock()
 
-			// We have read from every source, and have something to send.
-			// Now the existing frame lives at d.sinkBuffer[sinkBufferHead:sinkBufferTail]
-			// So perform a single clipping loop, then send, and update the tail
-
-			for i := sinkBufferHead; i < sinkBufferTail; i += 1 {
+			for i := sinkBufferHead; i < sinkBufferTail; i++ {
 				d.sinkBuffer[i] = max(-1.0, min(1.0, d.sinkBuffer[i]))
 			}
+
 			select {
 			case <-d.masterContext.Done():
 				return
@@ -332,11 +310,8 @@ func (d *FanInDevice) startListening() {
 			default:
 			}
 
-			// Update the head to the tail, since we have sent the frame
 			sinkBufferHead = sinkBufferTail
 		}
-		// This goroutine closes when the master context is cancelled,
-		// which occurs when the Close function of this device is called.
 	}()
 }
 

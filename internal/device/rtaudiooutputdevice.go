@@ -29,6 +29,12 @@ type RtAudioOutputDevice struct {
 	frameQueue   chan frame.PCMFrame
 	shutdownOnce sync.Once
 	closeWg      sync.WaitGroup
+
+	// sampleBuf is a pre-allocated FIFO that decouples the FanInDevice frame size
+	// from the actual JACK/ALSA period size. Accessed only from the callback thread.
+	sampleBuf     []float32
+	sampleBufHead int
+	sampleBufTail int
 }
 
 func NewRtAudioOutputDevice(
@@ -59,6 +65,9 @@ func NewRtAudioOutputDevice(
 		"DeviceID", deviceInfo.ID,
 	)
 
+	// Pre-allocate 1 second of stereo audio to avoid RT-thread allocations.
+	sampleBufCap := sampleRate * channels
+
 	device := &RtAudioOutputDevice{
 		logger:       logger,
 		uuid:         uuid,
@@ -69,6 +78,7 @@ func NewRtAudioOutputDevice(
 		numChannels:  channels,
 		bufferFrames: bufferFrames,
 		frameQueue:   make(chan frame.PCMFrame, 8), // Buffer to smooth out playback
+		sampleBuf:    make([]float32, sampleBufCap),
 	}
 	return device, nil
 }
@@ -85,29 +95,63 @@ func (d *RtAudioOutputDevice) SetStream(sourceChannel <-chan frame.PCMFrame) {
 		FirstChannel: 0,
 	}
 
-	// Output callback function
+	// Output callback function.
+	// Uses d.sampleBuf as a FIFO to bridge the FanInDevice frame size to whatever
+	// period size JACK/ALSA actually uses. Only called from the RtAudio callback
+	// thread so sampleBuf needs no locking.
 	cb := func(out rtaudiowrapper.Buffer, in rtaudiowrapper.Buffer, dur time.Duration, status rtaudiowrapper.StreamStatus) int {
-		// d.logger.Debug("sending output from: ", "DeviceID", d.DeviceID)
 		outputData := out.Float32()
 		if outputData == nil {
 			return 0
 		}
 
-		select {
-		case pcmFrame, ok := <-d.frameQueue:
-			if !ok {
-				// Channel closed — fill with silence and stop
-				for i := range outputData {
-					outputData[i] = 0
+		needed := len(outputData)
+		written := 0
+
+		for written < needed {
+			available := d.sampleBufTail - d.sampleBufHead
+			if available == 0 {
+				// Refill from the frame queue.
+				select {
+				case pcmFrame, ok := <-d.frameQueue:
+					if !ok {
+						for i := written; i < needed; i++ {
+							outputData[i] = 0
+						}
+						return 2
+					}
+					// Compact sampleBuf if the incoming frame won't fit at the tail.
+					if len(pcmFrame) > len(d.sampleBuf)-d.sampleBufTail {
+						copy(d.sampleBuf, d.sampleBuf[d.sampleBufHead:d.sampleBufTail])
+						d.sampleBufTail -= d.sampleBufHead
+						d.sampleBufHead = 0
+					}
+					// If the frame still doesn't fit the buffer is genuinely full;
+					// drop the oldest samples to make room.
+					if len(pcmFrame) > len(d.sampleBuf)-d.sampleBufTail {
+						excess := len(pcmFrame) - (len(d.sampleBuf) - d.sampleBufTail)
+						copy(d.sampleBuf, d.sampleBuf[excess:d.sampleBufTail])
+						d.sampleBufTail -= excess
+					}
+					copy(d.sampleBuf[d.sampleBufTail:], pcmFrame)
+					d.sampleBufTail += len(pcmFrame)
+					available = d.sampleBufTail - d.sampleBufHead
+				default:
+					// No frame available — fill remaining output with silence.
+					for i := written; i < needed; i++ {
+						outputData[i] = 0
+					}
+					return 0
 				}
-				return 2
 			}
-			copy(outputData, pcmFrame)
-		default:
-			// No frame ready — fill with silence to avoid an underflow stall
-			for i := range outputData {
-				outputData[i] = 0
+
+			toWrite := available
+			if toWrite > needed-written {
+				toWrite = needed - written
 			}
+			copy(outputData[written:], d.sampleBuf[d.sampleBufHead:d.sampleBufHead+toWrite])
+			d.sampleBufHead += toWrite
+			written += toWrite
 		}
 
 		return 0
