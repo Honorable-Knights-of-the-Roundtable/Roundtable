@@ -20,7 +20,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libopus-dev libasound2-dev libpulse-dev libjack-jackd2-dev g++
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev g++
 
       - name: Cache rtaudio native object
         uses: actions/cache@v4
