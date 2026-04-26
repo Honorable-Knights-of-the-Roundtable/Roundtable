@@ -37,6 +37,17 @@ jobs:
       - name: Build
         run: go build -o roundtable ./cmd
 
+      - name: Copy Config to root
+        run: cp cmd/config.yaml .
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: roundtable-linux
+          path: |
+            roundtable
+            config.yaml
+
   build-windows:
     runs-on: windows-latest
     steps:
