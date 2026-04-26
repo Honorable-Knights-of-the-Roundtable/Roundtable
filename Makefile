@@ -56,6 +56,6 @@ run: build
 # TODO: Tags? rtaudio include/exclude tag?
 
 clean:
-	rm bin/*
+	rm -rf bin/*
 
 .PHONY: build run
