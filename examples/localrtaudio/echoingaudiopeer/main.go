@@ -144,8 +144,11 @@ func main() {
 		return
 	}
 
-	fanInDevice := device.NewFanInDevice(speakerProperties, frameDuration)
-	outputDevice.SetStream(fanInDevice.GetStream())
+	fanInDevice := device.NewFanInDevice(speakerProperties)
+	type pullSink interface{ SetFiller(func([]float32)) }
+	if ps, ok := outputDevice.(pullSink); ok {
+		ps.SetFiller(fanInDevice.Fill)
+	}
 
 	for {
 		select {

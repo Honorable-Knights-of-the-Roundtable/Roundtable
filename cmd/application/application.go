@@ -233,6 +233,13 @@ func (app *App) Close() {
 		peer.Close()
 	}
 	app.outputFanInDevice.Close()
+
+	// Stop the RT output stream. In the pull model there is no channel cascade to
+	// trigger this automatically, so we close it explicitly.
+	type closer interface{ Close() }
+	if c, ok := app.AudioOutputDevice.(closer); ok {
+		c.Close()
+	}
 }
 
 func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
@@ -284,10 +291,14 @@ func (app *App) SetInputDevice(inputDevice audiodevice.AudioSourceDevice) {
 func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 	outputDeviceProperties := outputDevice.GetDeviceProperties()
 
-	// TODO: Handle wait latency better
-	// Maybe have this be dependency injected? Or read from Viper?
-	outputFanInDevice := device.NewFanInDevice(outputDeviceProperties, 20*time.Millisecond)
-	outputDevice.SetStream(outputFanInDevice.GetStream())
+	outputFanInDevice := device.NewFanInDevice(outputDeviceProperties)
+
+	// Pull model: if the output device supports SetFiller, wire the hardware callback
+	// directly to FanInDevice.Fill, eliminating the software ticker entirely.
+	type pullSink interface{ SetFiller(func([]float32)) }
+	if ps, ok := outputDevice.(pullSink); ok {
+		ps.SetFiller(outputFanInDevice.Fill)
+	}
 
 	// Change all peers to work with new output
 	// Note we are changing the output device, and hence possibly also the output device properties

@@ -35,6 +35,11 @@ type RtAudioOutputDevice struct {
 	sampleBuf     []float32
 	sampleBufHead int
 	sampleBufTail int
+
+	// filler, when set via SetFiller, is called directly from the hardware callback
+	// instead of pulling from frameQueue. Eliminates the software ticker and period-size
+	// mismatch entirely.
+	filler func([]float32)
 }
 
 func NewRtAudioOutputDevice(
@@ -186,6 +191,44 @@ func (d *RtAudioOutputDevice) SetStream(sourceChannel <-chan frame.PCMFrame) {
 
 		d.logger.Debug("source channel closed")
 	}()
+}
+
+// SetFiller wires this device to use a pull model: the given filler func is called
+// directly from the hardware callback with the exact output slice to fill, eliminating
+// the software ticker, frameQueue goroutine, and sampleBuf entirely. SetFiller also
+// opens and starts the RT stream, so SetStream must NOT be called when using this method.
+func (d *RtAudioOutputDevice) SetFiller(filler func([]float32)) {
+	d.filler = filler
+
+	params := rtaudiowrapper.StreamParams{
+		DeviceID:     uint(d.DeviceID),
+		NumChannels:  uint(d.numChannels),
+		FirstChannel: 0,
+	}
+
+	cb := func(out rtaudiowrapper.Buffer, in rtaudiowrapper.Buffer, dur time.Duration, status rtaudiowrapper.StreamStatus) int {
+		outputData := out.Float32()
+		if outputData == nil {
+			return 0
+		}
+		d.filler(outputData)
+		return 0
+	}
+
+	err := d.audio.Open(&params, nil, rtaudiowrapper.FormatFloat32, uint(d.sampleRate), d.bufferFrames, cb, nil)
+	if err != nil {
+		d.logger.Error("failed to open audio stream", "err", err)
+		return
+	}
+
+	err = d.audio.Start()
+	if err != nil {
+		d.logger.Error("failed to start audio stream", "err", err)
+		d.audio.Close()
+		return
+	}
+
+	d.logger.Info("rtaudio output device started successfully")
 }
 
 // Close stops the audio stream and cleans up resources.

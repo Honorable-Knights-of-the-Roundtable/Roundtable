@@ -149,35 +149,23 @@ func (d *FanOutDevice) Close() {
 // --------------------------------------------------------------------------------
 // Fan In Device (Many to One)
 
-// A FanInDevice is both an AudioSourceDevice and an AudioSinkDevice.
+// A FanInDevice mixes audio from multiple source streams into a single output.
 //
 // Unlike other AudioSinkDevices, a call to SetStream does *not* set the singular input stream
-// but instead adds the given stream to a list of sourceStreams which are all checked for input
-// and combined together to be returned along the sinkStream.
-// A closed sourceStream is removed from the list, but does not close this device.
+// but instead adds the given stream to a list of sourceStreams which are all mixed together.
+// A closed sourceStream's goroutine exits cleanly; the device itself is not closed.
 //
-// The output stream (the sinkStream) gives the combined PCMFrames of the sourceStreams.
-// Frames are not buffered, but read from the sourceStreams at once (streams with no data are skipped)
-// and combined by simple addition (with clipping to values of +/- 1.0).
-//
-// The frameDuration defines how long the FanInDevice waits before
-// sending a new frame of audio. This therefore also defines how many samples
-// will exist in the produced frame (SampleRate*NumChannels*frameDuration/1Second).
-// That is, a FanInDevice will always produce frames of a definite size!
+// Audio is consumed via Fill, which is called directly from the hardware audio callback
+// (pull model). Each call to Fill reads however many samples the hardware needs, mixing all
+// available source audio and clipping to [-1.0, 1.0]. This means no software ticker, no
+// intermediate channel, and no period-size mismatch — the hardware clock drives everything.
 type FanInDevice struct {
 	deviceProperties audiodevice.DeviceProperties
-	frameDuration    time.Duration
-
-	masterContext           context.Context
-	masterContextCancelFunc context.CancelFunc
 
 	shutdownOnce sync.Once
 
 	sourcesMutex sync.RWMutex
 	sources      []*fanInSource
-
-	sinkStream chan frame.PCMFrame
-	sinkBuffer frame.PCMFrame
 }
 
 type fanInSource struct {
@@ -222,137 +210,68 @@ func (source *fanInSource) listen() {
 			copy(source.buffer[source.bufferTail:], frame)
 			source.bufferTail += len(frame)
 
-			// data is consumed by fan in device, so that's all she wrote here
-
 			source.mutex.Unlock()
 		}
 	}()
 }
 
-// Create a new FanInDevice.
+// NewFanInDevice creates a new FanInDevice.
 // The given device properties are a promise: it is expected that all
 // incoming frames will have EXACTLY this format. Therefore, consider using
 // an AudioFormatConversionDevice before this device.
-//
-// The given frameDuration defines how long the FanInDevice waits before
-// sending a new frame of audio. This therefore also defines how many samples
-// will exist in the produced frame (SampleRate*NumChannels*frameDuration/1Second).
-// That is, a FanInDevice will always produce frames of a definite size!
-func NewFanInDevice(properties audiodevice.DeviceProperties, frameDuration time.Duration) *FanInDevice {
-	masterContext, masterContextCancelFunction := context.WithCancel(context.Background())
-
-	d := &FanInDevice{
-		deviceProperties:        properties,
-		frameDuration:           frameDuration,
-		masterContext:           masterContext,
-		masterContextCancelFunc: masterContextCancelFunction,
-		sources:                 make([]*fanInSource, 0),
-		sinkStream:              make(chan frame.PCMFrame),
-		// The sink buffer should be large enough to hold PCM frames from any device.
-		// It's incredibly unlikely that one full second of audio will ever arrive,
-		// so leave enough room for this many samples.
-		sinkBuffer: make(frame.PCMFrame, properties.SampleRate*properties.NumChannels),
+func NewFanInDevice(properties audiodevice.DeviceProperties) *FanInDevice {
+	return &FanInDevice{
+		deviceProperties: properties,
+		sources:          make([]*fanInSource, 0),
 	}
-	d.startListening()
-
-	return d
-}
-
-func (d *FanInDevice) startListening() {
-	go func() {
-		expectedFrameLength := d.deviceProperties.NumChannels * d.deviceProperties.SampleRate * int(d.frameDuration) / int(time.Second)
-		sinkBufferHead := 0
-
-		listenTicker := time.NewTicker(d.frameDuration)
-		defer listenTicker.Stop()
-		for {
-			select {
-			case <-listenTicker.C:
-			case <-d.masterContext.Done():
-				return
-			}
-
-			sinkBufferTail := sinkBufferHead + expectedFrameLength
-			if sinkBufferTail > len(d.sinkBuffer) {
-				copy(d.sinkBuffer, d.sinkBuffer[sinkBufferHead:])
-				sinkBufferHead = 0
-				sinkBufferTail = expectedFrameLength
-			}
-
-			clear(d.sinkBuffer[sinkBufferHead:sinkBufferTail])
-
-			d.sourcesMutex.Lock()
-			for _, source := range d.sources {
-				source.mutex.Lock()
-				available := source.bufferTail - source.bufferHead
-				if available == 0 {
-					source.mutex.Unlock()
-					continue
-				}
-				toRead := min(available, expectedFrameLength)
-				frame := source.buffer[source.bufferHead : source.bufferHead+toRead]
-				source.bufferHead += toRead
-				source.mutex.Unlock()
-				for i := 0; i < toRead; i++ {
-					d.sinkBuffer[sinkBufferHead+i] += frame[i]
-				}
-			}
-			d.sourcesMutex.Unlock()
-
-			for i := sinkBufferHead; i < sinkBufferTail; i++ {
-				d.sinkBuffer[i] = max(-1.0, min(1.0, d.sinkBuffer[i]))
-			}
-
-			select {
-			case <-d.masterContext.Done():
-				return
-			case d.sinkStream <- d.sinkBuffer[sinkBufferHead:sinkBufferTail]:
-			default:
-			}
-
-			sinkBufferHead = sinkBufferTail
-		}
-	}()
 }
 
 func (d *FanInDevice) GetDeviceProperties() audiodevice.DeviceProperties {
 	return d.deviceProperties
 }
 
-// Set a new stream of this device to receive data from.
+// SetStream adds a new source stream to be mixed into Fill output.
 //
 // The given stream is read from and combined with all other streams set this way.
-// When the given sourceStream is closed, it is removed from this device.
 func (d *FanInDevice) SetStream(sourceStream <-chan frame.PCMFrame) {
 	d.sourcesMutex.Lock()
 	defer d.sourcesMutex.Unlock()
 	newFanInSource := &fanInSource{
-		stream:     sourceStream,
-		buffer:     make(frame.PCMFrame, d.deviceProperties.SampleRate*d.deviceProperties.NumChannels),
-		bufferHead: 0,
-		bufferTail: 0,
+		stream: sourceStream,
+		buffer: make(frame.PCMFrame, d.deviceProperties.SampleRate*d.deviceProperties.NumChannels),
 	}
 	newFanInSource.listen()
-
 	d.sources = append(d.sources, newFanInSource)
 }
 
-// Get the output of this FanInDevice.
-//
-// The returned stream combines data from all source streams
-// simply adding these streams together and clipping as required.
-func (d *FanInDevice) GetStream() <-chan frame.PCMFrame {
-	return d.sinkStream
+// Fill mixes all available source audio into dst.
+// Called directly from the hardware audio callback — no allocation, no channel ops.
+func (d *FanInDevice) Fill(dst []float32) {
+	clear(dst)
+	d.sourcesMutex.RLock()
+	defer d.sourcesMutex.RUnlock()
+	for _, source := range d.sources {
+		source.mutex.Lock()
+		available := source.bufferTail - source.bufferHead
+		if available > 0 {
+			toRead := min(available, len(dst))
+			for i := 0; i < toRead; i++ {
+				dst[i] += source.buffer[source.bufferHead+i]
+			}
+			source.bufferHead += toRead
+		}
+		source.mutex.Unlock()
+	}
+	for i, v := range dst {
+		dst[i] = max(-1.0, min(1.0, v))
+	}
 }
 
-// Close this device.
-// Stop listening on the sourceStreams, and close the sinkStream
+// Close stops this device and discards all source references.
 func (d *FanInDevice) Close() {
 	d.shutdownOnce.Do(func() {
 		d.sourcesMutex.Lock()
 		defer d.sourcesMutex.Unlock()
-		d.masterContextCancelFunc()
-		close(d.sinkStream)
 		d.sources = d.sources[:0]
 	})
 }
