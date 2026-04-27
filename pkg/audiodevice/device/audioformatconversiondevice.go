@@ -63,7 +63,7 @@ func NewAudioFormatConversionDevice(
 	}
 	if sourceProperties.NumChannels == 2 && sinkProperties.NumChannels == 1 {
 		slog.Debug("adding stereo to mono")
-		formatConversionFunctions = append(formatConversionFunctions, stereoToMono())
+		formatConversionFunctions = append(formatConversionFunctions, stereoToMono(sourceProperties.StereoChannelIndex))
 	}
 	if sourceProperties.SampleRate != sinkProperties.SampleRate {
 		slog.Debug("adding resampler")
@@ -117,14 +117,19 @@ func (d *AudioFormatConversionDevice) GetDeviceProperties() audiodevice.DevicePr
 func (d *AudioFormatConversionDevice) SetStream(sourceStream <-chan frame.PCMFrame) {
 	d.sourceStream = sourceStream
 	go func() {
+		defer func() {
+			// If sinkStream was closed externally while this goroutine was
+			// still sending (e.g. re-wiring during SetInputChannel), recover
+			// so the whole program doesn't crash. Close() is idempotent.
+			recover()
+			d.Close()
+		}()
 		for pcmFrame := range d.sourceStream {
 			for _, f := range d.formatConversionFunctions {
 				pcmFrame = f(pcmFrame)
 			}
 			d.sinkStream <- pcmFrame
 		}
-		// This goroutine dies when incomingAudioStream is closed.
-		d.Close()
 	}()
 }
 
@@ -149,19 +154,17 @@ func monoToStereo() audioFormatConversionFunction {
 	}
 }
 
-func stereoToMono() audioFormatConversionFunction {
+func stereoToMono(channelIndex int) audioFormatConversionFunction {
 	buf := make(frame.PCMFrame, bufferSize)
 	return func(sourceFrame frame.PCMFrame) frame.PCMFrame {
 		if len(sourceFrame)%2 == 1 {
 			sourceFrame = sourceFrame[:len(sourceFrame)-1]
 		}
-
 		for i := range len(sourceFrame) / 2 {
-			buf[i] = (sourceFrame[2*i] + sourceFrame[2*i+1]) / 2
+			buf[i] = sourceFrame[2*i+channelIndex]
 		}
 		return buf[:len(sourceFrame)/2]
 	}
-
 }
 
 func newResampleFunction(sourceProperties audiodevice.DeviceProperties, sinkProperties audiodevice.DeviceProperties) audioFormatConversionFunction {

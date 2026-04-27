@@ -21,6 +21,7 @@ type RtAudioInputDevice struct {
 	uuid   uuid.UUID
 
 	audio        rtaudiowrapper.RtAudio
+	name         string
 	sampleRate   uint
 	numChannels  int
 	dataChannel  chan frame.PCMFrame
@@ -45,6 +46,10 @@ func NewRtAudioInputDevice(
 
 	name := deviceInfo.Name
 	numChannels := deviceInfo.NumInputChannels
+	if numChannels > 2 {
+		slog.Warn("input device reports unusual channel count, clamping to 2", "device", name, "reported", numChannels)
+		numChannels = 2
+	}
 	sampleRate := deviceInfo.PreferredSampleRate
 
 	ctx, ctxCancelFunc := context.WithCancel(context.Background())
@@ -64,6 +69,7 @@ func NewRtAudioInputDevice(
 		logger:        logger,
 		uuid:          uuid,
 		DeviceID:      deviceInfo.ID,
+		name:          deviceInfo.Name,
 		audio:         audio,
 		sampleRate:    sampleRate,
 		numChannels:   numChannels,
@@ -83,7 +89,7 @@ func NewRtAudioInputDevice(
 	// Set up stream parameters
 
 	options := rtaudiowrapper.StreamOptions{
-		Flags: rtaudiowrapper.FlagsScheduleRealtime | rtaudiowrapper.FlagsMinimizeLatency,
+		Flags: rtaudiowrapper.FlagsScheduleRealtime,
 	}
 
 	cb := func(out, in rtaudiowrapper.Buffer, dur time.Duration, status rtaudiowrapper.StreamStatus) int {
@@ -98,7 +104,6 @@ func NewRtAudioInputDevice(
 		if inputData == nil {
 			return 0
 		}
-		// Convert float32 slice to PCMFrame (already in correct format)
 		pcmFrame := make(frame.PCMFrame, len(inputData))
 		copy(pcmFrame, inputData)
 		select {
@@ -167,8 +172,9 @@ func (d *RtAudioInputDevice) Close() {
 // GetDeviceProperties returns the audio properties (sample rate, channels) of this device.
 func (d *RtAudioInputDevice) GetDeviceProperties() audiodevice.DeviceProperties {
 	return audiodevice.DeviceProperties{
+		Name:        d.name,
 		SampleRate:  int(d.sampleRate),
 		NumChannels: d.numChannels,
-		ID: 		 d.DeviceID,
+		ID:          d.DeviceID,
 	}
 }
