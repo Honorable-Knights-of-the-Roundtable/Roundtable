@@ -9,7 +9,7 @@
 .PHONY: git_submodule_init git_submodule_init_opus git_submodule_init_rtaudiowrapper
 
 # Run me once on clone
-git_submodule_init: git_submodule_init_base git_submodule_init_opus git_submodule_init_rtaudiowrapper
+git_submodule_init: git_submodule_init_base git_submodule_init_opus git_submodule_init_rtaudiowrapper git_submodule_build build
 	go mod tidy
 
 git_submodule_init_base:
