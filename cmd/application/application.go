@@ -400,6 +400,39 @@ func (app *App) TapInputAudio(ctx context.Context) ([]float32, int, int, error) 
 	}
 }
 
+// TapInputAudio records raw audio from the local mic input until ctx is cancelled.
+// Returns float32 samples plus the device's sample rate and channel count.
+// Prints incoming audio levels, will be reworked to provide some kind of data output instead,
+// but fine for now
+func (app *App) TapInputAudioWithStats(ctx context.Context) ([]float32, int, int, error) {
+	tap := app.inputFanOutDevice.GetStream()
+	props := app.AudioInputDevice.GetDeviceProperties()
+
+	var samples []float32
+	for {
+		select {
+		case <-ctx.Done():
+			return samples, props.SampleRate, props.NumChannels, nil
+		case f, ok := <-tap:
+			if !ok {
+				return samples, props.SampleRate, props.NumChannels, nil
+			}
+
+			var peak float32
+			for _, s := range f {
+				if s < 0 {
+					s = -s
+				}
+				if s > peak {
+					peak = s
+				}
+			}
+			fmt.Printf("\rRecorded %d samples, peak level: %.2f%%", len(samples), peak*100)
+			samples = append(samples, f...)
+		}
+	}
+}
+
 // RecordPeerAudio records raw decoded audio from the first connected peer for the given
 // duration and returns the samples and the peer's device properties (sample rate, channels).
 // The samples are in the same format as they arrive from the network — before any local

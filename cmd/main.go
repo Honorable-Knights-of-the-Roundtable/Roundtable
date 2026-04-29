@@ -333,6 +333,7 @@ func recordPeer(app *application.App) {
 	fmt.Printf("Play it back with: play %s\n", outPath)
 }
 
+
 func micTest(app *application.App) {
 	if err := os.MkdirAll(filepath.Dir(micTestFile), 0755); err != nil {
 		log.Fatalf("Failed to create directory: %v", err)
@@ -345,7 +346,7 @@ func micTest(app *application.App) {
 		cancel()
 	}()
 
-	samples, sampleRate, numChannels, err := app.TapInputAudio(ctx)
+	samples, sampleRate, numChannels, err := app.TapInputAudioWithStats(ctx)
 	cancel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "recording error: %v\n", err)
