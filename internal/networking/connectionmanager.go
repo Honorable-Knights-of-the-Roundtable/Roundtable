@@ -267,12 +267,16 @@ func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
 
 // JoinRoom joins a named room on the signalling server and dials every peer already in it.
 // Dials are made concurrently so a slow peer doesn't block the others.
-func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string) error {
+// TODO(Jake):  This should probably return a `User` object or something, but I am unsure what that will look like
+// 				So for now it just returns a []string
+func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string) ([]string, error) {
+
+	var peers []string
 	joinData, err := json.Marshal(struct {
 		Room string `json:"room"`
 	}{Room: roomName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal join payload: %w", err)
+		return peers, fmt.Errorf("failed to marshal join payload: %w", err)
 	}
 
 	// Register the channel before sending to avoid a race where the response
@@ -292,13 +296,13 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 		From: manager.localPeerIdentifier.Uuid.String(),
 		Data: joinData,
 	}); err != nil {
-		return fmt.Errorf("failed to send join message: %w", err)
+		return peers, fmt.Errorf("failed to send join message: %w", err)
 	}
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
-	case peers := <-ch:
+		return peers, ctx.Err()
+	case peers = <-ch:
 		manager.logger.Info("joined room", "room", roomName, "existing_peers", len(peers))
 		for _, peerUUID := range peers {
 			id, err := uuid.Parse(peerUUID)
@@ -314,7 +318,8 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 			}(remotePeer)
 		}
 	}
-	return nil
+
+	return peers, nil
 }
 
 // handleIncomingAnswer correlates an incoming answer with the waiting Dial call via the offer UUID.

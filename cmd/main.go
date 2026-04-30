@@ -171,6 +171,7 @@ cleanup:
 	}
 	fmt.Printf("Successfully wrote %s\n", outpath)
 }
+
 func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) *networking.ConnectionManager {
 	// avoid polluting the main namespace with the options and config structs
 
@@ -295,9 +296,20 @@ func join(cmd string, app *application.App) {
 		return
 	}
 	ctx := context.Background()
-	if err := app.JoinRoom(ctx, roomName); err != nil {
+	peers, err := app.JoinRoom(ctx, roomName)
+	if err != nil {
 		slog.Error("error joining room", "room", roomName, "err", err)
 	}
+
+	if peers == nil {
+		slog.Error("Peers was nil even with app.JoinRoom succeeding, something is probably wrong ", "room", roomName)
+	}
+	fmt.Printf("Users in room: %d\n", len(peers))
+
+}
+
+func users(app *application.App) {
+	panic("Not Implemented")
 }
 
 func recordPeer(app *application.App) {
@@ -495,6 +507,7 @@ func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
 func printCommands() {
 	fmt.Fprintf(os.Stderr, "Available commands:\n")
 	fmt.Fprintf(os.Stderr, "    join <room>        - Join a room and connect to everyone in it\n")
+	fmt.Fprintf(os.Stderr, "    users              - Show users connected to room\n")
 	fmt.Fprintf(os.Stderr, "    record-peer [secs] - Record raw incoming audio from first peer to a WAV file\n")
 	fmt.Fprintf(os.Stderr, "    test               - Test current audio device\n")
 	fmt.Fprintf(os.Stderr, "    input              - Select input audio device\n")
@@ -532,6 +545,8 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		switch cmd {
 		case "join":
 			join(line, app)
+		case "users":
+			users(app)
 		case "input":
 			selectInput(api, app)
 		case "output":

@@ -338,7 +338,9 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 }
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
-func (app *App) JoinRoom(ctx context.Context, roomName string) error {
+// TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something, 
+//				but I am unsure what that will look like, so for now it just returns a []string
+func (app *App) JoinRoom(ctx context.Context, roomName string) ([]string, error) {
 	return app.connectionManager.JoinRoom(ctx, roomName)
 }
 
