@@ -519,8 +519,13 @@ func printCommands() {
 	fmt.Fprintf(os.Stderr, "    close|exit         - exit the repl\n")
 }
 
-func disconnect(app *application.App) {
+func disconnectAllRooms(app *application.App) {
 	app.DisconnectAll()
+	ctx := context.Background()
+	err := app.LeaveRooms(ctx)
+	if err != nil {
+		slog.Error("Error with leaving room", "err", err)
+	}
 	fmt.Println("Disconnected from room")
 }
 
@@ -580,7 +585,7 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			app.SetInputGain(g)
 			fmt.Printf("Input gain set to %.1f\n", g)
 		case "disconnect":
-			disconnect(app)
+			disconnectAllRooms(app)
 		case "help":
 			printCommands()
 		case "close", "exit":

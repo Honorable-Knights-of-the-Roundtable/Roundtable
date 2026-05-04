@@ -265,6 +265,17 @@ func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
 	ch <- data.Peers
 }
 
+func (manager *ConnectionManager) SendLeaveMessage(ctx context.Context) (error) {
+	if err := manager.sendWSMessage(signalling.WSMessage{
+		Type: "leave",
+		From: manager.localPeerIdentifier.Uuid.String(),
+		// Data: "",
+	}); err != nil {
+		return fmt.Errorf("failed to send leave message: %w", err)
+	}
+	return nil
+}
+
 // JoinRoom joins a named room on the signalling server and dials every peer already in it.
 // Dials are made concurrently so a slow peer doesn't block the others.
 // TODO(Jake):  This should probably return a `User` object or something, but I am unsure what that will look like

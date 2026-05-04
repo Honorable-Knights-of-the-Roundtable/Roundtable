@@ -336,6 +336,9 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
+func (app *App) LeaveRooms(ctx context.Context) (error) {
+	return app.connectionManager.SendLeaveMessage(ctx)
+}
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
 // TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something, 
