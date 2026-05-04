@@ -1,0 +1,10 @@
+loglevel: "debug"
+logfile: "repl.log"
+ICEServers:
+  - "stun:stun.l.google.com:19302"
+signallingserver: "ws://localhost:1066/ws"
+timeout: 30
+OPUSFrameDuration: "20ms"
+OPUSBufferSafetyFactor: 16
+codecs:
+  - "CodecOpus48000Mono"
