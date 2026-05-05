@@ -90,6 +90,7 @@ func NewRtAudioOutputDevice(
 
 // SetStream sets the source channel for audio data and starts playback.
 // This method starts the RtAudio stream and begins consuming PCM frames from the channel.
+// TODO(Jake): Now we are using the SetFiller approach maybe this can be removed?
 func (d *RtAudioOutputDevice) SetStream(sourceChannel <-chan frame.PCMFrame) {
 	d.dataChannel = sourceChannel
 

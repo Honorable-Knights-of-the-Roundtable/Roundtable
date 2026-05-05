@@ -336,13 +336,14 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
-func (app *App) LeaveRooms(ctx context.Context) (error) {
+func (app *App) LeaveRooms(ctx context.Context) error {
 	return app.connectionManager.SendLeaveMessage(ctx)
 }
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
-// TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something, 
-//				but I am unsure what that will look like, so for now it just returns a []string
+// TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something,
+//
+//	but I am unsure what that will look like, so for now it just returns a []string
 func (app *App) JoinRoom(ctx context.Context, roomName string) ([]string, error) {
 	return app.connectionManager.JoinRoom(ctx, roomName)
 }
