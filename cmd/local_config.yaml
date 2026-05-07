@@ -1,5 +1,5 @@
 loglevel: "debug"
-logfile: "repl.log"
+# logfile: "repl.log"
 ICEServers:
   - "stun:stun.l.google.com:19302"
 signallingserver: "ws://localhost:1066/ws"

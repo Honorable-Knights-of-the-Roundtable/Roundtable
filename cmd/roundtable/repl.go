@@ -391,7 +391,7 @@ func printCommands() {
 func disconnectAllRooms(app *application.App) {
 	app.DisconnectAll()
 	ctx := context.Background()
-	err := app.LeaveRooms(ctx)
+	err := app.DisconnectRooms(ctx)
 	if err != nil {
 		slog.Error("Error with leaving room", "err", err)
 	}

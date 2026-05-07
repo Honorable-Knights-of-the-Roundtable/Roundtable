@@ -49,7 +49,14 @@ git_submodule_build_rtaudiowrapper:
 # Example building can be found in the respective example directory
 
 build:
-	go build -o bin/roundtable.exe ./cmd && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin
+	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin
+
+build_gui:
+	go build -o bin/gui.exe ./cmd/gui
+
+run_gui: build_gui
+	cd bin && ./gui.exe
+
 run: build
 	cd bin && ./roundtable.exe
 

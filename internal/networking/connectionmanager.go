@@ -265,13 +265,13 @@ func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
 	ch <- data.Peers
 }
 
-func (manager *ConnectionManager) SendLeaveMessage(ctx context.Context) error {
+func (manager *ConnectionManager) SendDisconnectMessage(ctx context.Context) error {
 	if err := manager.sendWSMessage(signalling.WSMessage{
-		Type: "leave",
+		Type: "disconnect",
 		From: manager.localPeerIdentifier.Uuid.String(),
 		// Data: "",
 	}); err != nil {
-		return fmt.Errorf("failed to send leave message: %w", err)
+		return fmt.Errorf("failed to send disconnect message: %w", err)
 	}
 	return nil
 }

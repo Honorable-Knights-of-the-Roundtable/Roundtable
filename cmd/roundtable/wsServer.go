@@ -129,13 +129,14 @@ func (s *Server) handleCommand(msg IPCMessage) {
 			return
 		}
 		s.join(data.Room)
-	case "leave":
-		// TODO: disconnectAllRooms(s.app)
 	case "input":
+		slog.Info("input command")
 		// TODO: selectInput(api, s.app)
 	case "output":
+		slog.Info("output command")
 		// TODO: selectOutput(api, s.app)
 	case "test":
+		slog.Info("test command")
 		// TODO: micTest(s.app)
 	case "channel":
 		var data struct {
@@ -156,7 +157,13 @@ func (s *Server) handleCommand(msg IPCMessage) {
 		}
 		// TODO: s.app.SetInputGain(data.Gain)
 	case "disconnect":
-		// TODO: disconnectAllRooms(s.app)
+		slog.Info("disconnect command")
+		s.app.DisconnectAll()
+		ctx := context.Background()
+		err := s.app.DisconnectRooms(ctx)
+		if err != nil {
+			slog.Error("Error with leaving room", "err", err)
+		}
 	case "close", "exit":
 		s.app.Close()
 		os.Exit(0)
