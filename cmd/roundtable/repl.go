@@ -282,8 +282,7 @@ func micTest(app *application.App) {
 	}
 
 	fmt.Printf("Playing from: %s\n", micTestFile)
-	outputDeviceName := app.AudioOutputDevice.GetDeviceProperties().Name
-	if err := rtaudiowrapper.Speaker(micTestFile, outputDeviceName); err != nil {
+	if err := rtaudiowrapper.Speaker(micTestFile, app.GetCurrentOutputDevice().Name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error playing file: %v\n", err)
 		os.Exit(1)
 	}
@@ -307,29 +306,6 @@ func readDeviceID(devices []audioapi.AudioIODevice) (int, bool) {
 	return id, true
 }
 
-func printDevFromID(id int) string {
-	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-	}
-	defer audio.Destroy()
-
-	devices, err := audio.Devices()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
-	}
-	for _, device := range devices {
-		if id == device.ID {
-			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
-			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
-			marker := ""
-			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
-			return fmt.Sprintf("%-50s %-8s %-8s %-8s%s", device.Name, inputCh, outputCh, duplexCh, marker)
-		}
-	}
-	return "non found"
-}
-
 func printDevices(devices []audioapi.AudioIODevice) string {
 	var sb strings.Builder
 	for i, dev := range devices {
@@ -340,38 +316,30 @@ func printDevices(devices []audioapi.AudioIODevice) string {
 	return sb.String()
 }
 
-func selectInput(api *audioapi.RtAudioApi, app *application.App) {
-	devices := api.InputDevices()
-	currentDev := printDevFromID(app.AudioInputDevice.GetDeviceProperties().ID)
-	fmt.Println("Current Input Device:", currentDev)
+func selectInput(app *application.App) {
+	devices := app.GetInputDevices()
+	fmt.Println("Current Input Device:", app.GetCurrentInputDevice().Name)
 	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
 	}
-	newDev, err := api.InitInputDeviceFromID(devices[id])
-	if err != nil {
+	if err := app.SelectInputDevice(devices[id]); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init input device: %v\n", err)
-		return
 	}
-	app.SetInputDevice(newDev)
 }
 
-func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
-	devices := api.OutputDevices()
-	currentDev := printDevFromID(app.AudioOutputDevice.GetDeviceProperties().ID)
-	fmt.Println("Current Output Device:", currentDev)
+func selectOutput(app *application.App) {
+	devices := app.GetOutputDevices()
+	fmt.Println("Current Output Device:", app.GetCurrentOutputDevice().Name)
 	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
 	}
-	newDev, err := api.InitOutputDeviceFromID(devices[id])
-	if err != nil {
+	if err := app.SelectOutputDevice(devices[id]); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init output device: %v\n", err)
-		return
 	}
-	app.SetOutputDevice(newDev)
 }
 
 func printCommands() {
@@ -398,7 +366,7 @@ func disconnectAllRooms(app *application.App) {
 	fmt.Println("Disconnected from room")
 }
 
-func repl(api *audioapi.RtAudioApi, app *application.App) {
+func repl(app *application.App) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("\n====== Roundtable REPL ======\n")
 	printCommands()
@@ -420,9 +388,9 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		case "join":
 			join(line, app)
 		case "input":
-			selectInput(api, app)
+			selectInput(app)
 		case "output":
-			selectOutput(api, app)
+			selectOutput(app)
 		case "record-peer":
 			recordPeer(app)
 		case "test":

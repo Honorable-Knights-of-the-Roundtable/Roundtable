@@ -10,13 +10,10 @@ import (
 	"sync"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
+	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/ipc"
 	"github.com/gorilla/websocket"
 )
 
-type IPCMessage struct {
-	Type string          `json:"type"`
-	Data json.RawMessage `json:"data,omitempty"`
-}
 
 type threadSafeWriter struct {
 	*websocket.Conn
@@ -55,14 +52,7 @@ func (s *Server) SendEvent(event any) {
 
 
 func (s *Server) sendError(message string) {
-	s.SendEvent(struct {
-		Type string `json:"type"`
-		Data struct {
-			Message string `json:"message"`
-		} `json:"data"`
-	}{Type: "error", Data: struct {
-		Message string `json:"message"`
-	}{Message: message}})
+	s.SendEvent(ipc.Outgoing{Type: "error", Data: ipc.ErrorData{Message: message}})
 }
 
 func (s *Server) join(roomName string) {
@@ -74,14 +64,7 @@ func (s *Server) join(roomName string) {
 		return
 	}
 
-	s.SendEvent(struct {
-		Type string `json:"type"`
-		Data struct {
-			Peers []string `json:"peers"`
-		} `json:"data"`
-	}{Type: "room_joined", Data: struct {
-		Peers []string `json:"peers"`
-	}{Peers: peers}})
+	s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: peers}})
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -105,9 +88,17 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	slog.Info("frontend connected")
+	s.SendEvent(ipc.Outgoing{Type: "init", Data: ipc.InitData{
+		InputDevices:        s.app.GetInputDevices(),
+		OutputDevices:       s.app.GetOutputDevices(),
+		CurrentInputDevice:  s.app.GetCurrentInputDevice(),
+		CurrentOutputDevice: s.app.GetCurrentOutputDevice(),
+		Channel:             s.app.GetPreferredInputChannel(),
+		Gain:                s.app.GetInputGain(),
+	}})
 
 	for {
-		var msg IPCMessage
+		var msg ipc.Incoming
 		if err := conn.ReadJSON(&msg); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 				slog.Error("websocket read error", "err", err)
@@ -118,7 +109,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) handleCommand(msg IPCMessage) {
+func (s *Server) handleCommand(msg ipc.Incoming) {
 	switch msg.Type {
 	case "join":
 		var data struct {

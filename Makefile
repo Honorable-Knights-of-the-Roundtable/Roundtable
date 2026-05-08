@@ -52,7 +52,7 @@ build:
 	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin
 
 build_gui:
-	go build -o bin/gui.exe ./cmd/gui
+	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin
 
 run_gui: build_gui
 	cd bin && ./gui.exe

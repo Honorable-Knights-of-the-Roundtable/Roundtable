@@ -89,6 +89,12 @@ type App struct {
 	// For stereo input devices: which channel to use when converting to mono.
 	// 0 = left (Input 1), 1 = right (Input 2). Default 0.
 	preferredInputChannel int
+
+	// The AudioIODevice metadata for the currently selected input/output devices.
+	// Kept in sync with AudioInputDevice/AudioOutputDevice so callers can get the
+	// name and ID without cross-referencing the device list.
+	currentInputDevice  audioapi.AudioIODevice
+	currentOutputDevice audioapi.AudioIODevice
 }
 
 // --------------------------------------------------------------------------------
@@ -117,12 +123,14 @@ func NewApp(
 		return nil, err
 	}
 	app.SetInputDevice(defaultInputDevice)
+	app.currentInputDevice = findDeviceByID(audioIODeviceAPI.InputDevices(), defaultInputDevice.GetDeviceProperties().ID)
 
 	defaultOutputDevice, err := audioIODeviceAPI.InitDefaultOutputDevice()
 	if err != nil {
 		return nil, err
 	}
 	app.SetOutputDevice(defaultOutputDevice)
+	app.currentOutputDevice = findDeviceByID(audioIODeviceAPI.OutputDevices(), defaultOutputDevice.GetDeviceProperties().ID)
 
 	// --------------------------------------------------------------------------------
 	// Start listening for new peers
@@ -375,6 +383,52 @@ func (app *App) SetInputChannel(idx int) {
 	}
 }
 
+func (app *App) GetInputDevices() []audioapi.AudioIODevice {
+	return app.audioIODeviceAPI.InputDevices()
+}
+
+func (app *App) GetOutputDevices() []audioapi.AudioIODevice {
+	return app.audioIODeviceAPI.OutputDevices()
+}
+
+func (app *App) GetCurrentInputDevice() audioapi.AudioIODevice {
+	return app.currentInputDevice
+}
+
+func (app *App) GetCurrentOutputDevice() audioapi.AudioIODevice {
+	return app.currentOutputDevice
+}
+
+// SelectInputDevice opens the given device and makes it the active input.
+func (app *App) SelectInputDevice(dev audioapi.AudioIODevice) error {
+	opened, err := app.audioIODeviceAPI.InitInputDeviceFromID(dev)
+	if err != nil {
+		return err
+	}
+	app.SetInputDevice(opened)
+	app.currentInputDevice = dev
+	return nil
+}
+
+// SelectOutputDevice opens the given device and makes it the active output.
+func (app *App) SelectOutputDevice(dev audioapi.AudioIODevice) error {
+	opened, err := app.audioIODeviceAPI.InitOutputDeviceFromID(dev)
+	if err != nil {
+		return err
+	}
+	app.SetOutputDevice(opened)
+	app.currentOutputDevice = dev
+	return nil
+}
+
+func findDeviceByID(devices []audioapi.AudioIODevice, id int) audioapi.AudioIODevice {
+	for _, dev := range devices {
+		if dev.ID == id {
+			return dev
+		}
+	}
+	return audioapi.AudioIODevice{}
+}
 // GetPreferredInputChannel returns the current 0-based channel index preference (0 = Input 1, 1 = Input 2).
 func (app *App) GetPreferredInputChannel() int {
 	return app.preferredInputChannel
@@ -384,6 +438,11 @@ func (app *App) GetPreferredInputChannel() int {
 // 1.0 is unity gain. Use values > 1.0 to boost a quiet input device.
 func (app *App) SetInputGain(gain float32) {
 	app.inputAugmentationDevice.SetVolumeAdjustMagnitude(gain)
+}
+
+// Not sure if audioIODeviceAPI should just be public but will do getters for now
+func (app *App) GetInputGain() float32 {
+	return app.inputAugmentationDevice.GetVolumeAdjustMagnitude()
 }
 
 // TapInputAudio records raw audio from the local mic input until ctx is cancelled.
