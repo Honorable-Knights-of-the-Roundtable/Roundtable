@@ -60,7 +60,7 @@ run_gui: build_gui
 run: build
 	cd bin && ./roundtable.exe
 
-devrun: build
+run_dev: build
 	cd bin && ./roundtable.exe -configFilePath local_config.yaml
 
 # TODO: Tags? rtaudio include/exclude tag?
