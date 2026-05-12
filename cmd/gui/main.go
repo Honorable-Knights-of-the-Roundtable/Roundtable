@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"flag"
@@ -35,8 +36,8 @@ type User struct {
 }
 
 type AppState struct {
-	mu                  sync.Mutex
-	Users               []User
+	mu    sync.Mutex
+	Users []User
 	// TODO(Jake): This mirrors ipc.InitData, I am unsure if it should just be a shared type or not
 	InputDevices        []audioapi.AudioIODevice
 	OutputDevices       []audioapi.AudioIODevice
@@ -55,7 +56,11 @@ type WSClient struct {
 }
 
 func (c *WSClient) send(msgType string, data any) {
-	b, _ := json.Marshal(data)
+	b, err := json.Marshal(data)
+	if err != nil {
+		slog.Error("failed to marshal in send", "err", err)
+	}
+	fmt.Printf("Marshaled %v\n", string(b))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.conn.WriteJSON(ipc.Incoming{Type: msgType, Data: b})
@@ -93,6 +98,7 @@ func connectWS(client *WSClient, addr string, state *AppState, onUpdate func()) 
 				state.CurrentInputDevice = ev.CurrentInputDevice
 				state.CurrentOutputDevice = ev.CurrentOutputDevice
 				state.Gain = ev.Gain
+				state.Channel = ev.Channel
 
 			case "room_joined":
 				slog.Info("room_joined")
@@ -105,13 +111,17 @@ func connectWS(client *WSClient, addr string, state *AppState, onUpdate func()) 
 				}
 			case "peer_joined":
 				slog.Info("peer_joined")
-				var ev struct{ Name string `json:"name"` }
+				var ev struct {
+					Name string `json:"name"`
+				}
 				if json.Unmarshal(msg.Data, &ev) == nil {
 					state.Users = append(state.Users, User{Name: ev.Name})
 				}
 			case "peer_left":
 				slog.Info("peer_left")
-				var ev struct{ Name string `json:"name"` }
+				var ev struct {
+					Name string `json:"name"`
+				}
 				if json.Unmarshal(msg.Data, &ev) == nil {
 					for i, u := range state.Users {
 						if u.Name == ev.Name {
@@ -209,6 +219,60 @@ func newJoinRow(client *WSClient) *fyne.Container {
 	)
 }
 
+func newInputSelect(state *AppState, client *WSClient) *widget.Select {
+	return widget.NewSelect(nil, func(name string) {
+		state.mu.Lock()
+		if name == state.CurrentInputDevice.Name {
+			state.mu.Unlock()
+			return
+		}
+		for _, dev := range state.InputDevices {
+			if dev.Name == name {
+				state.mu.Unlock()
+				client.send("input", dev)
+				return
+			}
+		}
+		state.mu.Unlock()
+	})
+}
+
+func newOutputSelect(state *AppState, client *WSClient) *widget.Select {
+	return widget.NewSelect(nil, func(name string) {
+		state.mu.Lock()
+		if name == state.CurrentOutputDevice.Name {
+			state.mu.Unlock()
+			return
+		}
+		for _, dev := range state.OutputDevices {
+			if dev.Name == name {
+				state.mu.Unlock()
+				client.send("output", dev)
+				return
+			}
+		}
+		state.mu.Unlock()
+	})
+}
+
+func newChannelGroup(client *WSClient) *widget.RadioGroup {
+	channelGroup := widget.NewRadioGroup([]string{"1", "2"},
+		func(s string) {
+			fmt.Printf("clicked with value %s\n", s)
+			channel, err := strconv.Atoi(s)
+			fmt.Printf("parsed value %d\n", channel)
+			if err != nil {
+				slog.Error("could not parse channelGroup option", "err", err)
+				return
+			}
+			client.send("channel", map[string]int{"channel": channel})
+		},
+	)
+	channelGroup.Horizontal = true
+
+	return channelGroup
+}
+
 // ---- Main -------------------------------------------------------------------
 
 func main() {
@@ -259,59 +323,28 @@ func main() {
 	joinRow := newJoinRow(&client)
 
 	// Audio settings — created before connectWS so onUpdate can refresh them
-	inputSelect := widget.NewSelect(nil, func(name string) {
-		state.mu.Lock()
-		if name == state.CurrentInputDevice.Name {
-			state.mu.Unlock()
-			return
-		}
-		for _, dev := range state.InputDevices {
-			if dev.Name == name {
-				state.mu.Unlock()
-				client.send("input", dev)
-				return
-			}
-		}
-		state.mu.Unlock()
-	})
+	inputSelect := newInputSelect(&state, &client)
+	outputSelect := newOutputSelect(&state, &client)
 
-	outputSelect := widget.NewSelect(nil, func(name string) {
-		state.mu.Lock()
-		if name == state.CurrentOutputDevice.Name {
-			state.mu.Unlock()
-			return
-		}
-		for _, dev := range state.OutputDevices {
-			if dev.Name == name {
-				state.mu.Unlock()
-				client.send("output", dev)
-				return
-			}
-		}
-		state.mu.Unlock()
-	})
+	channelGroup := newChannelGroup(&client)
 
-	// channelGroup := widget.NewRadioGroup([]string{"Input 1", "Input 2"}, nil)
-	// channelGroup.SetSelected("Input 1")
-	// channelGroup.Horizontal = true
-	//
-	// gainLabel := widget.NewLabel("1.0x")
-	// gainSlider := widget.NewSlider(0, 5)
-	// gainSlider.SetValue(1.0)
-	// gainSlider.Step = 0.1
-	// gainSlider.OnChanged = func(v float64) {
-	// 	gainLabel.SetText(fmt.Sprintf("%.1fx", v))
-	// }
-	//
-	// gainRow := container.NewBorder(nil, nil, nil, gainLabel, gainSlider)
+	gainLabel := widget.NewLabel("1.0x")
+	gainSlider := widget.NewSlider(0, 5)
+	gainSlider.SetValue(1.0)
+	gainSlider.Step = 0.1
+	gainSlider.OnChanged = func(v float64) {
+		gainLabel.SetText(fmt.Sprintf("%.1fx", v))
+		client.send("gain", map[string]float32{"gain": float32(v)})
+	}
+
+	gainRow := container.NewBorder(nil, nil, nil, gainLabel, gainSlider)
 	settingsForm := widget.NewForm(
 		widget.NewFormItem("Input", inputSelect),
 		widget.NewFormItem("Output", outputSelect),
-		// widget.NewFormItem("Channel", channelGroup),
-		// widget.NewFormItem("Gain", gainRow),
+		widget.NewFormItem("Channel", channelGroup),
+		widget.NewFormItem("Gain", gainRow),
 	)
 	audioSettings := container.NewVBox(widget.NewSeparator(), settingsForm)
-	//
 	// micTestBtn := widget.NewButton("Mic Test", nil)
 	//
 	// deafenBtn := widget.NewButton("Deafen All", nil)
@@ -350,11 +383,15 @@ func main() {
 			outputNames := deviceNames(state.OutputDevices)
 			currentInput := state.CurrentInputDevice.Name
 			currentOutput := state.CurrentOutputDevice.Name
+			channel := state.Channel
+			gain := state.Gain
 			state.mu.Unlock()
 			inputSelect.SetOptions(inputNames)
 			inputSelect.SetSelected(currentInput)
 			outputSelect.SetOptions(outputNames)
 			outputSelect.SetSelected(currentOutput)
+			channelGroup.SetSelected(strconv.Itoa(channel))
+			gainSlider.SetValue(float64(gain))
 			userList.Refresh()
 		})
 	})
@@ -363,7 +400,6 @@ func main() {
 		slog.Error("connectWS failed", "err", err)
 		statusLabel.SetText("Failed to connect to backend")
 	}
-
 
 	w.ShowAndRun()
 

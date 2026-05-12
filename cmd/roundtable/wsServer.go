@@ -14,7 +14,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-
 type threadSafeWriter struct {
 	*websocket.Conn
 	sync.Mutex
@@ -49,7 +48,6 @@ func (s *Server) SendEvent(event any) {
 		conn.WriteJSON(event)
 	}
 }
-
 
 func (s *Server) sendError(message string) {
 	s.SendEvent(ipc.Outgoing{Type: "error", Data: ipc.ErrorData{Message: message}})
@@ -137,7 +135,7 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 			slog.Warn("invalid channel message", "err", err)
 			return
 		}
-		// TODO: s.app.SetInputChannel(data.Channel)
+		s.app.SetInputChannel(data.Channel)
 	case "gain":
 		var data struct {
 			Gain float32 `json:"gain"`
@@ -146,7 +144,7 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 			slog.Warn("invalid gain message", "err", err)
 			return
 		}
-		// TODO: s.app.SetInputGain(data.Gain)
+		s.app.SetInputGain(data.Gain)
 	case "disconnect":
 		slog.Info("disconnect command")
 		s.app.DisconnectAll()
