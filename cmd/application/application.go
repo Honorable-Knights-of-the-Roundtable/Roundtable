@@ -429,6 +429,7 @@ func findDeviceByID(devices []audioapi.AudioIODevice, id int) audioapi.AudioIODe
 	}
 	return audioapi.AudioIODevice{}
 }
+
 // GetPreferredInputChannel returns the current 0-based channel index preference (0 = Input 1, 1 = Input 2).
 func (app *App) GetPreferredInputChannel() int {
 	return app.preferredInputChannel

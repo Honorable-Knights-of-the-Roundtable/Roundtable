@@ -1,11 +1,11 @@
 package ipc
 
-
 import (
 	"encoding/json"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/audioapi"
 )
+
 // Types to describe the Interprocess communication between local audio server and frontend client
 
 type Incoming struct {
@@ -34,5 +34,3 @@ type RoomJoinedData struct {
 type ErrorData struct {
 	Message string `json:"message"`
 }
-
-
