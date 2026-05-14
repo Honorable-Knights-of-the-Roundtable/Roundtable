@@ -46,6 +46,7 @@ type AppState struct {
 	Channel             int
 	Gain                float32
 	Deafened            bool
+	Testing             bool
 }
 
 // ---- WebSocket client -------------------------------------------------------
@@ -92,7 +93,6 @@ func connectWS(client *WSClient, addr string, state *AppState, onUpdate func()) 
 				if err := json.Unmarshal(msg.Data, &ev); err != nil {
 					slog.Error("Unmarshal initData error", "err", err)
 				}
-				fmt.Printf("InitData\n%v", ev)
 				state.InputDevices = ev.InputDevices
 				state.OutputDevices = ev.OutputDevices
 				state.CurrentInputDevice = ev.CurrentInputDevice
@@ -229,7 +229,7 @@ func newInputSelect(state *AppState, client *WSClient) *widget.Select {
 		for _, dev := range state.InputDevices {
 			if dev.Name == name {
 				state.mu.Unlock()
-				client.send("input", dev)
+				client.send("input", map[string]audioapi.AudioIODevice{"device": dev})
 				return
 			}
 		}
@@ -247,7 +247,7 @@ func newOutputSelect(state *AppState, client *WSClient) *widget.Select {
 		for _, dev := range state.OutputDevices {
 			if dev.Name == name {
 				state.mu.Unlock()
-				client.send("output", dev)
+				client.send("output", map[string]audioapi.AudioIODevice{"device": dev})
 				return
 			}
 		}
@@ -271,6 +271,28 @@ func newChannelGroup(client *WSClient) *widget.RadioGroup {
 	channelGroup.Horizontal = true
 
 	return channelGroup
+}
+
+// TODO: The highlight for showing that it is recording is jank, but fine for now
+func newMicTestBtn(state *AppState, client *WSClient) *widget.Button {
+	micTestBtn := widget.NewButtonWithIcon("Mic Test", theme.MediaRecordIcon(), nil)
+	micTestBtn.Importance = widget.LowImportance
+	micTestBtn.OnTapped = func() {
+		state.mu.Lock()
+		state.Testing = !state.Testing
+		// User is saying to stop testing
+		if state.Testing {
+			micTestBtn.Importance = widget.HighImportance
+			client.send("test", map[string]bool{"testing": false})
+		} else {
+			// User is saying to start testing
+			micTestBtn.Importance = widget.LowImportance
+			client.send("test", map[string]bool{"testing": true})
+		}
+
+		state.mu.Unlock()
+	}
+	return micTestBtn
 }
 
 // ---- Main -------------------------------------------------------------------
@@ -308,6 +330,7 @@ func main() {
 	w.Resize(fyne.NewSize(400, 580))
 
 	var state AppState
+	state.Testing = false
 	var client WSClient
 
 	w.SetCloseIntercept(func() {
@@ -345,7 +368,8 @@ func main() {
 		widget.NewFormItem("Gain", gainRow),
 	)
 	audioSettings := container.NewVBox(widget.NewSeparator(), settingsForm)
-	// micTestBtn := widget.NewButton("Mic Test", nil)
+	micTestBtn := newMicTestBtn(&state, &client)
+
 	//
 	// deafenBtn := widget.NewButton("Deafen All", nil)
 	// deafenBtn.OnTapped = func() {
@@ -367,7 +391,8 @@ func main() {
 	//
 	bottom := container.NewVBox(
 		audioSettings,
-		// widget.NewSeparator(),
+		widget.NewSeparator(),
+		container.NewVBox(micTestBtn),
 		// container.NewGridWithColumns(2, micTestBtn, deafenBtn),
 	)
 

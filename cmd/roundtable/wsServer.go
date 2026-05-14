@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
+	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/audioapi"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/ipc"
 	"github.com/gorilla/websocket"
 )
@@ -118,14 +119,47 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 			return
 		}
 		s.join(data.Room)
+
 	case "input":
 		slog.Info("input command")
-		// TODO: selectInput(api, s.app)
+		var data struct {
+			InputDevice audioapi.AudioIODevice `json:"device"`
+		}
+		if err := json.Unmarshal(msg.Data, &data); err != nil {
+			slog.Warn("invalid channel message", "err", err)
+			return
+		}
+		s.app.SelectInputDevice(data.InputDevice)
+
 	case "output":
 		slog.Info("output command")
-		// TODO: selectOutput(api, s.app)
+		var data struct {
+			OutputDevice audioapi.AudioIODevice `json:"device"`
+		}
+		if err := json.Unmarshal(msg.Data, &data); err != nil {
+			slog.Warn("invalid channel message", "err", err)
+			return
+		}
+		s.app.SelectOutputDevice(data.OutputDevice)
+
 	case "test":
 		slog.Info("test command")
+		var data struct {
+			Testing bool `json:"testing"`
+		}
+
+		if err := json.Unmarshal(msg.Data, &data); err != nil {
+			slog.Warn("invalid channel message", "err", err)
+			return
+		}
+		if data.Testing {
+			slog.Info("s.app.StopMicSelfPlayback()")
+			s.app.StopMicSelfPlayback()
+		} else {
+			slog.Info("s.app.StartMicSelfPlayback()")
+			s.app.StartMicSelfPlayback()
+		}
+
 		// TODO: micTest(s.app)
 	case "channel":
 		var data struct {

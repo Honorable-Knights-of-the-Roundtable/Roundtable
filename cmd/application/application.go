@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	// "log/slog"
+
+	// "log/slog"
 	"sync"
 	"time"
 
@@ -95,6 +97,9 @@ type App struct {
 	// name and ID without cross-referencing the device list.
 	currentInputDevice  audioapi.AudioIODevice
 	currentOutputDevice audioapi.AudioIODevice
+
+	micMonitorMu   sync.Mutex
+	micMonitorStop context.CancelFunc
 }
 
 // --------------------------------------------------------------------------------
@@ -496,6 +501,55 @@ func (app *App) TapInputAudioWithStats(ctx context.Context) ([]float32, int, int
 			fmt.Printf("\rRecorded %d samples, peak level: %.2f%%", len(samples), peak*100)
 			samples = append(samples, f...)
 		}
+	}
+}
+
+func (app *App) StartMicSelfPlayback() {
+	app.micMonitorMu.Lock()
+	defer app.micMonitorMu.Unlock()
+
+	if app.micMonitorStop != nil {
+		return // already running
+	}
+
+	tap := app.inputFanOutDevice.GetStream()
+	bridge := make(chan frame.PCMFrame, 64)
+	app.outputFanInDevice.SetStream(bridge)
+
+	converter := device.NewAudioFormatConversionDevice(
+		app.inputFanOutDevice.GetDeviceProperties(),
+		app.outputFanInDevice.GetDeviceProperties(),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	app.micMonitorStop = cancel
+
+	go func() {
+		defer close(bridge)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case f, ok := <-tap:
+				if !ok {
+					return
+				}
+				select {
+				case bridge <- converter.Convert(f):
+				default:
+				}
+			}
+		}
+	}()
+}
+
+func (app *App) StopMicSelfPlayback() {
+	app.micMonitorMu.Lock()
+	defer app.micMonitorMu.Unlock()
+
+	if app.micMonitorStop != nil {
+		app.micMonitorStop()
+		app.micMonitorStop = nil
 	}
 }
 
