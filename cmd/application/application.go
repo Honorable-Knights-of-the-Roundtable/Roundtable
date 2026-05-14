@@ -99,7 +99,7 @@ type App struct {
 	currentOutputDevice audioapi.AudioIODevice
 
 	micMonitorMu   sync.Mutex
-	micMonitorStop context.CancelFunc
+	micMonitorStop func()
 }
 
 // --------------------------------------------------------------------------------
@@ -513,34 +513,13 @@ func (app *App) StartMicSelfPlayback() {
 	}
 
 	tap := app.inputFanOutDevice.GetStream()
-	bridge := make(chan frame.PCMFrame, 64)
-	app.outputFanInDevice.SetStream(bridge)
-
-	converter := device.NewAudioFormatConversionDevice(
+	conv := device.NewAudioFormatConversionDevice(
 		app.inputFanOutDevice.GetDeviceProperties(),
 		app.outputFanInDevice.GetDeviceProperties(),
 	)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	app.micMonitorStop = cancel
-
-	go func() {
-		defer close(bridge)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case f, ok := <-tap:
-				if !ok {
-					return
-				}
-				select {
-				case bridge <- converter.Convert(f):
-				default:
-				}
-			}
-		}
-	}()
+	conv.SetStream(tap)
+	app.outputFanInDevice.SetStream(conv.GetStream())
+	app.micMonitorStop = conv.Close
 }
 
 func (app *App) StopMicSelfPlayback() {
