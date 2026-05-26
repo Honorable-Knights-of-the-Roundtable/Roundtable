@@ -37,7 +37,11 @@ type Server struct {
 }
 
 func NewServer(app *application.App) *Server {
-	return &Server{app: app}
+	s := &Server{app: app}
+	app.SetRoomUpdateCallback(func(peers []string) {
+		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: peers}})
+	})
+	return s
 }
 
 func (s *Server) SendEvent(event any) {
@@ -56,14 +60,13 @@ func (s *Server) sendError(message string) {
 
 func (s *Server) join(roomName string) {
 	ctx := context.Background()
-	peers, err := s.app.JoinRoom(ctx, roomName)
+	_, err := s.app.JoinRoom(ctx, roomName)
 	if err != nil {
 		slog.Error("error joining room", "room", roomName, "err", err)
 		s.sendError(fmt.Sprintf("failed to join room: %v", err))
-		return
 	}
-
-	s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: peers}})
+	// room_joined is sent via the SetRoomUpdateCallback when the signalling server
+	// broadcasts the updated member list.
 }
 
 func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -187,6 +190,7 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 		if err != nil {
 			slog.Error("Error with leaving room", "err", err)
 		}
+		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: []string{}}})
 	case "close", "exit":
 		s.app.Close()
 		os.Exit(0)

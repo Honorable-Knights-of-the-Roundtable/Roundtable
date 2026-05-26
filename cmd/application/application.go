@@ -151,6 +151,10 @@ func NewApp(
 	return app, nil
 }
 
+func (app *App) SetRoomUpdateCallback(cb func(peers []string)) {
+	app.connectionManager.SetRoomUpdateCallback(cb)
+}
+
 func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
 	// TODO: Reject peer if already connected / in rejected peer list?
 

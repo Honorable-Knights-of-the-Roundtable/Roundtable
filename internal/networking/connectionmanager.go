@@ -66,6 +66,10 @@ type ConnectionManager struct {
 	pendingJoin   chan joinResult
 	pendingJoinMu sync.Mutex
 
+	// onRoomUpdate is called on every room-update from the signalling server,
+	// including unsolicited ones (other peers joining or leaving).
+	onRoomUpdate func(peers []string)
+
 	// A channel to return established incoming connections.
 	//
 	// Once instantiated with NewConnectionManager, the caller should listen on
@@ -171,8 +175,8 @@ func (manager *ConnectionManager) readLoop() {
 			go manager.handleIncomingOffer(msg)
 		case "answer":
 			manager.handleIncomingAnswer(msg)
-		case "room-peers":
-			manager.handleRoomPeers(msg)
+		case "room-update":
+			manager.handleRoomUpdate(msg)
 		case "error":
 			manager.handleSignallingError(msg)
 		default:
@@ -251,16 +255,27 @@ func (manager *ConnectionManager) handleIncomingOffer(msg signalling.WSMessage) 
 	}
 }
 
-// handleRoomPeers delivers the peer list from the server to the waiting JoinRoom call.
-func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
+// handleRoomUpdate processes a room-update from the signalling server.
+// It unblocks a pending JoinRoom call (if any) and fires the ongoing room update callback.
+func (manager *ConnectionManager) handleRoomUpdate(msg signalling.WSMessage) {
 	var data struct {
 		Peers []string `json:"peers"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		manager.logger.Error("error while unmarshalling room-peers", "err", err)
+		manager.logger.Error("error while unmarshalling room-update", "err", err)
 		return
 	}
-	manager.deliverJoinResult(joinResult{peers: data.Peers})
+
+	manager.pendingJoinMu.Lock()
+	ch := manager.pendingJoin
+	manager.pendingJoinMu.Unlock()
+	if ch != nil {
+		ch <- joinResult{peers: data.Peers}
+	}
+
+	if manager.onRoomUpdate != nil {
+		manager.onRoomUpdate(data.Peers)
+	}
 }
 
 // handleSignallingError delivers a server-side error to the waiting JoinRoom call (if any).
@@ -273,19 +288,17 @@ func (manager *ConnectionManager) handleSignallingError(msg signalling.WSMessage
 		return
 	}
 	manager.logger.Warn("signalling server error", "message", data.Message)
-	manager.deliverJoinResult(joinResult{err: fmt.Errorf("%s", data.Message)})
-}
 
-func (manager *ConnectionManager) deliverJoinResult(result joinResult) {
 	manager.pendingJoinMu.Lock()
 	ch := manager.pendingJoin
 	manager.pendingJoinMu.Unlock()
-
-	if ch == nil {
-		manager.logger.Warn("received signalling response but no join is pending")
-		return
+	if ch != nil {
+		ch <- joinResult{err: fmt.Errorf("%s", data.Message)}
 	}
-	ch <- result
+}
+
+func (manager *ConnectionManager) SetRoomUpdateCallback(cb func(peers []string)) {
+	manager.onRoomUpdate = cb
 }
 
 func (manager *ConnectionManager) SendDisconnectMessage(ctx context.Context) error {
@@ -342,12 +355,15 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 			return peers, result.err
 		}
 		peers = result.peers
-		manager.logger.Info("joined room", "room", roomName, "existing_peers", len(peers))
+		manager.logger.Info("joined room", "room", roomName, "total_peers", len(peers))
 		for _, peerUUID := range peers {
 			id, err := uuid.Parse(peerUUID)
 			if err != nil {
-				manager.logger.Warn("invalid peer UUID in room-peers", "uuid", peerUUID)
+				manager.logger.Warn("invalid peer UUID in room-update", "uuid", peerUUID)
 				continue
+			}
+			if id == manager.localPeerIdentifier.Uuid {
+				continue // don't dial ourselves
 			}
 			remotePeer := signalling.PeerIdentifier{Uuid: id}
 			go func(p signalling.PeerIdentifier) {

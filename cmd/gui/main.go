@@ -101,33 +101,11 @@ func connectWS(client *WSClient, addr string, state *AppState, onUpdate func()) 
 				state.Channel = ev.Channel
 
 			case "room_joined":
-				slog.Info("room_joined")
 				var ev ipc.RoomJoinedData
 				if json.Unmarshal(msg.Data, &ev) == nil {
 					state.Users = make([]User, len(ev.Peers))
 					for i, p := range ev.Peers {
 						state.Users[i] = User{Name: p}
-					}
-				}
-			case "peer_joined":
-				slog.Info("peer_joined")
-				var ev struct {
-					Name string `json:"name"`
-				}
-				if json.Unmarshal(msg.Data, &ev) == nil {
-					state.Users = append(state.Users, User{Name: ev.Name})
-				}
-			case "peer_left":
-				slog.Info("peer_left")
-				var ev struct {
-					Name string `json:"name"`
-				}
-				if json.Unmarshal(msg.Data, &ev) == nil {
-					for i, u := range state.Users {
-						if u.Name == ev.Name {
-							state.Users = append(state.Users[:i], state.Users[i+1:]...)
-							break
-						}
 					}
 				}
 			default:
