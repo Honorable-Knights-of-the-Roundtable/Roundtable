@@ -54,8 +54,13 @@ build:
 build_gui:
 	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin
 
+build_all: build build_gui
+
 run_gui: build_gui
 	cd bin && ./gui.exe
+
+run_gui_dev: build_all
+	cd bin && ./gui.exe -serverBin ./roundtable.exe -serverConfigFilePath local_config.yaml
 
 run_gui_peer: build_gui
 	cd bin && ./gui.exe -serverAddr ws://127.0.0.1:42070/ws

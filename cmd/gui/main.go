@@ -1,17 +1,18 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
+	"time"
 
 	"flag"
-	"sync"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -47,6 +48,7 @@ type AppState struct {
 	Gain                float32
 	Deafened            bool
 	Testing             bool
+	Username            string
 }
 
 // ---- WebSocket client -------------------------------------------------------
@@ -99,13 +101,14 @@ func connectWS(client *WSClient, addr string, state *AppState, onUpdate func()) 
 				state.CurrentOutputDevice = ev.CurrentOutputDevice
 				state.Gain = ev.Gain
 				state.Channel = ev.Channel
+				state.Username = ev.Username
 
 			case "room_joined":
 				var ev ipc.RoomJoinedData
 				if json.Unmarshal(msg.Data, &ev) == nil {
 					state.Users = make([]User, len(ev.Peers))
 					for i, p := range ev.Peers {
-						state.Users[i] = User{Name: p}
+						state.Users[i] = User{Name: p.Name}
 					}
 				}
 			default:
@@ -278,6 +281,8 @@ func newMicTestBtn(state *AppState, client *WSClient) *widget.Button {
 func main() {
 	configFilePath := flag.String("configFilePath", "config.yaml", "Set the file path to the config file.")
 	serverAddr := flag.String("serverAddr", "ws://127.0.0.1:42069/ws", "WebSocket address of the roundtable backend.")
+	serverBin := flag.String("serverBin", "", "Path to roundtable server binary to spawn (empty = connect to existing).")
+	serverConfigFilePath := flag.String("serverConfigFilePath", "local_config.yaml", "Config file path for the spawned roundtable server.")
 	flag.Parse()
 
 	config.LoadConfig(*configFilePath)
@@ -294,14 +299,38 @@ func main() {
 		defer logFilePointer.Close()
 	}
 
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	signalInterruptContext, signalInterruptContextCancel := context.WithCancel(context.Background())
-	go func() {
-		<-sigs
-		signal.Reset()
-		signalInterruptContextCancel()
-	}()
+	var serverCmd *exec.Cmd
+	var jobCleanup func()
+	if *serverBin != "" {
+		serverCmd = exec.Command(*serverBin, "-configFilePath", *serverConfigFilePath)
+		serverCmd.Stdout = os.Stdout
+		serverCmd.Stderr = os.Stderr
+		prepareCmd(serverCmd)
+		if err := serverCmd.Start(); err != nil {
+			slog.Error("failed to start roundtable server", "bin", *serverBin, "err", err)
+			os.Exit(1)
+		}
+		slog.Info("roundtable server started", "pid", serverCmd.Process.Pid)
+		jobCleanup, err = postStart(serverCmd)
+		if err != nil {
+			slog.Warn("failed to configure server process lifecycle", "err", err)
+			jobCleanup = func() {}
+		}
+	}
+
+	var stopServerOnce sync.Once
+	stopServer := func() {
+		stopServerOnce.Do(func() {
+			if serverCmd != nil && serverCmd.Process != nil {
+				serverCmd.Process.Kill()
+				serverCmd.Wait()
+			}
+			if jobCleanup != nil {
+				jobCleanup()
+			}
+		})
+	}
+	defer stopServer()
 
 	a := app.New()
 	a.Settings().SetTheme(theme.DarkTheme())
@@ -312,10 +341,23 @@ func main() {
 	state.Testing = false
 	var client WSClient
 
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		signal.Reset()
+		if client.conn != nil {
+			client.send("disconnect", nil)
+		}
+		stopServer()
+		a.Quit()
+	}()
+
 	w.SetCloseIntercept(func() {
 		if client.conn != nil {
 			client.send("disconnect", nil)
 		}
+		stopServer()
 		w.Close()
 	})
 	state.Users = []User{}
@@ -340,7 +382,17 @@ func main() {
 	}
 
 	gainRow := container.NewBorder(nil, nil, nil, gainLabel, gainSlider)
+
+	usernameEntry := widget.NewEntry()
+	usernameEntry.SetPlaceHolder("Display name")
+	usernameEntry.OnSubmitted = func(name string) {
+		if name != "" {
+			client.send("username", ipc.UsernameData{Username: name})
+		}
+	}
+
 	settingsForm := widget.NewForm(
+		widget.NewFormItem("Name", usernameEntry),
 		widget.NewFormItem("Input", inputSelect),
 		widget.NewFormItem("Output", outputSelect),
 		widget.NewFormItem("Channel", channelGroup),
@@ -379,7 +431,7 @@ func main() {
 	content := container.NewBorder(top, bottom, nil, nil, userList)
 	w.SetContent(content)
 
-	err = connectWS(&client, *serverAddr, &state, func() {
+	onUpdate := func() {
 		fyne.Do(func() {
 			statusLabel.SetText("Connected")
 			state.mu.Lock()
@@ -389,6 +441,7 @@ func main() {
 			currentOutput := state.CurrentOutputDevice.Name
 			channel := state.Channel
 			gain := state.Gain
+			username := state.Username
 			state.mu.Unlock()
 			inputSelect.SetOptions(inputNames)
 			inputSelect.SetSelected(currentInput)
@@ -396,21 +449,29 @@ func main() {
 			outputSelect.SetSelected(currentOutput)
 			channelGroup.SetSelected(strconv.Itoa(channel))
 			gainSlider.SetValue(float64(gain))
+			if usernameEntry.Text == "" {
+				usernameEntry.SetText(username)
+			}
 			userList.Refresh()
 		})
-	})
+	}
 
-	if err != nil {
-		slog.Error("connectWS failed", "err", err)
+	const wsRetryAttempts = 10
+	const wsRetryDelay = 200 * time.Millisecond
+	var connectErr error
+	for i := 0; i < wsRetryAttempts; i++ {
+		connectErr = connectWS(&client, *serverAddr, &state, onUpdate)
+		if connectErr == nil {
+			break
+		}
+		if i < wsRetryAttempts-1 {
+			time.Sleep(wsRetryDelay)
+		}
+	}
+	if connectErr != nil {
+		slog.Error("connectWS failed after retries", "err", connectErr)
 		statusLabel.SetText("Failed to connect to backend")
 	}
 
 	w.ShowAndRun()
-
-	<-signalInterruptContext.Done()
-	slog.Debug("closing gui gracefully")
-	if client.conn != nil {
-		client.send("disconnect", nil)
-	}
-	w.Close()
 }
