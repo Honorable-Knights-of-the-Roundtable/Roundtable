@@ -49,7 +49,7 @@ git_submodule_build_rtaudiowrapper:
 # Example building can be found in the respective example directory
 
 build:
-	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin
+	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin && cp cmd/local_config_peer2.yaml bin
 
 build_gui:
 	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin
@@ -57,11 +57,21 @@ build_gui:
 run_gui: build_gui
 	cd bin && ./gui.exe
 
+run_gui_peer: build_gui
+	cd bin && ./gui.exe -serverAddr ws://127.0.0.1:42070/ws
+
 run: build
 	cd bin && ./roundtable.exe
 
 run_dev: build
 	cd bin && ./roundtable.exe -configFilePath local_config.yaml
+
+run_peer: build
+	cd bin && ./roundtable.exe -configFilePath local_config_peer2.yaml
+
+build_dev:
+	air --build.cmd "make build" \
+		--build.full_bin "./bin/roundtable.exe -configFilePath ./bin/local_config.yaml"
 
 # TODO: Tags? rtaudio include/exclude tag?
 
