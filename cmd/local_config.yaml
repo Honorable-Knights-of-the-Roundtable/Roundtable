@@ -3,6 +3,7 @@ loglevel: "debug"
 ICEServers:
   - "stun:stun.l.google.com:19302"
 signallingserver: "ws://localhost:1066/ws"
+username: "Peer1"
 timeout: 30
 OPUSFrameDuration: "20ms"
 OPUSBufferSafetyFactor: 16

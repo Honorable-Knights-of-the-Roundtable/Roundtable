@@ -7,11 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/audioapi"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/ipc"
+	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
 	"github.com/gorilla/websocket"
 )
 
@@ -38,8 +40,12 @@ type Server struct {
 
 func NewServer(app *application.App) *Server {
 	s := &Server{app: app}
-	app.SetRoomUpdateCallback(func(peers []string) {
-		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: peers}})
+	app.SetRoomUpdateCallback(func(peers []signalling.PeerInfo) {
+		ipcPeers := make([]ipc.PeerInfo, len(peers))
+		for i, p := range peers {
+			ipcPeers[i] = ipc.PeerInfo{ID: p.ID, Name: p.Name}
+		}
+		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: ipcPeers}})
 	})
 	return s
 }
@@ -97,6 +103,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 		CurrentOutputDevice: s.app.GetCurrentOutputDevice(),
 		Channel:             s.app.GetPreferredInputChannel(),
 		Gain:                s.app.GetInputGain(),
+		Username:            s.app.GetUsername(),
 	}})
 
 	for {
@@ -182,6 +189,23 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 			return
 		}
 		s.app.SetInputGain(data.Gain)
+	case "username":
+		var data ipc.UsernameData
+		if err := json.Unmarshal(msg.Data, &data); err != nil {
+			s.sendError("invalid username message")
+			return
+		}
+		data.Username = strings.TrimSpace(data.Username)
+		if data.Username == "" {
+			s.sendError("username cannot be empty")
+			return
+		}
+		if len([]rune(data.Username)) > 64 {
+			data.Username = string([]rune(data.Username)[:64])
+		}
+		if err := s.app.SetUsername(data.Username); err != nil {
+			slog.Warn("failed to set username", "err", err)
+		}
 	case "disconnect":
 		slog.Info("disconnect command")
 		s.app.DisconnectAll()
@@ -190,7 +214,7 @@ func (s *Server) handleCommand(msg ipc.Incoming) {
 		if err != nil {
 			slog.Error("Error with leaving room", "err", err)
 		}
-		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: []string{}}})
+		s.SendEvent(ipc.Outgoing{Type: "room_joined", Data: ipc.RoomJoinedData{Peers: []ipc.PeerInfo{}}})
 	case "close", "exit":
 		s.app.Close()
 		os.Exit(0)

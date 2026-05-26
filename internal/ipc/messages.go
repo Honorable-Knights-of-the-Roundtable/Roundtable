@@ -25,12 +25,22 @@ type InitData struct {
 	CurrentOutputDevice audioapi.AudioIODevice   `json:"current_output_device"`
 	Channel             int                      `json:"channel"`
 	Gain                float32                  `json:"gain"`
+	Username            string                   `json:"username"`
+}
+
+type PeerInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type RoomJoinedData struct {
-	Peers []string `json:"peers"`
+	Peers []PeerInfo `json:"peers"`
 }
 
 type ErrorData struct {
 	Message string `json:"message"`
+}
+
+type UsernameData struct {
+	Username string `json:"username"`
 }

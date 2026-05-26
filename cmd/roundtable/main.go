@@ -131,6 +131,7 @@ func main() {
 	localPeerIdentifier := signalling.PeerIdentifier{
 		Uuid:     uuid.New(),
 		PublicIP: "",
+		Name:     viper.GetString("username"),
 	}
 
 	connectionManager := initializeConnectionManager(localPeerIdentifier)

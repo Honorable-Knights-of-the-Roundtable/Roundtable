@@ -151,8 +151,16 @@ func NewApp(
 	return app, nil
 }
 
-func (app *App) SetRoomUpdateCallback(cb func(peers []string)) {
+func (app *App) SetRoomUpdateCallback(cb func(peers []signalling.PeerInfo)) {
 	app.connectionManager.SetRoomUpdateCallback(cb)
+}
+
+func (app *App) SetUsername(name string) error {
+	return app.connectionManager.Rename(name)
+}
+
+func (app *App) GetUsername() string {
+	return app.connectionManager.GetUsername()
 }
 
 func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
@@ -365,10 +373,7 @@ func (app *App) DisconnectRooms(ctx context.Context) error {
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
 // Returns an error if already in a room.
-// TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something,
-//
-//	but I am unsure what that will look like, so for now it just returns a []string
-func (app *App) JoinRoom(ctx context.Context, roomName string) ([]string, error) {
+func (app *App) JoinRoom(ctx context.Context, roomName string) ([]signalling.PeerInfo, error) {
 	app.currentRoomMu.Lock()
 	if app.currentRoom != "" {
 		room := app.currentRoom
