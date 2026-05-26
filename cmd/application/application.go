@@ -100,6 +100,9 @@ type App struct {
 
 	micMonitorMu   sync.Mutex
 	micMonitorStop func()
+
+	currentRoom   string
+	currentRoomMu sync.Mutex
 }
 
 // --------------------------------------------------------------------------------
@@ -350,15 +353,34 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
 func (app *App) DisconnectRooms(ctx context.Context) error {
+	app.currentRoomMu.Lock()
+	app.currentRoom = ""
+	app.currentRoomMu.Unlock()
 	return app.connectionManager.SendDisconnectMessage(ctx)
 }
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
+// Returns an error if already in a room.
 // TODO(Jake):  As mentioned at connectionManager.JoinRoom, this should probably return a `User` object or something,
 //
 //	but I am unsure what that will look like, so for now it just returns a []string
 func (app *App) JoinRoom(ctx context.Context, roomName string) ([]string, error) {
-	return app.connectionManager.JoinRoom(ctx, roomName)
+	app.currentRoomMu.Lock()
+	if app.currentRoom != "" {
+		room := app.currentRoom
+		app.currentRoomMu.Unlock()
+		return nil, fmt.Errorf("already in room %q, disconnect first", room)
+	}
+	app.currentRoom = roomName
+	app.currentRoomMu.Unlock()
+
+	peers, err := app.connectionManager.JoinRoom(ctx, roomName)
+	if err != nil {
+		app.currentRoomMu.Lock()
+		app.currentRoom = ""
+		app.currentRoomMu.Unlock()
+	}
+	return peers, err
 }
 
 // propsWithChannel returns a copy of props with StereoChannelIndex set to the app's current preference.

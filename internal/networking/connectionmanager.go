@@ -14,6 +14,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+type joinResult struct {
+	peers []string
+	err   error
+}
+
 // ConnectionManager handles networking in the application using WebRTC
 //
 // Specifically, once instantiated, the ConnectionManager handles listening for connections,
@@ -57,8 +62,8 @@ type ConnectionManager struct {
 	pendingDials   map[uuid.UUID]chan signalling.SignallingAnswer
 	pendingDialsMu sync.Mutex
 
-	// pendingJoin receives the peer list returned by the server after a JoinRoom call.
-	pendingJoin   chan []string
+	// pendingJoin receives the result of a JoinRoom call from the signalling server.
+	pendingJoin   chan joinResult
 	pendingJoinMu sync.Mutex
 
 	// A channel to return established incoming connections.
@@ -168,6 +173,8 @@ func (manager *ConnectionManager) readLoop() {
 			manager.handleIncomingAnswer(msg)
 		case "room-peers":
 			manager.handleRoomPeers(msg)
+		case "error":
+			manager.handleSignallingError(msg)
 		default:
 			manager.logger.Warn("unknown signalling message type", "type", msg.Type)
 		}
@@ -253,16 +260,32 @@ func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
 		manager.logger.Error("error while unmarshalling room-peers", "err", err)
 		return
 	}
+	manager.deliverJoinResult(joinResult{peers: data.Peers})
+}
 
+// handleSignallingError delivers a server-side error to the waiting JoinRoom call (if any).
+func (manager *ConnectionManager) handleSignallingError(msg signalling.WSMessage) {
+	var data struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(msg.Data, &data); err != nil {
+		manager.logger.Error("error while unmarshalling signalling error", "err", err)
+		return
+	}
+	manager.logger.Warn("signalling server error", "message", data.Message)
+	manager.deliverJoinResult(joinResult{err: fmt.Errorf("%s", data.Message)})
+}
+
+func (manager *ConnectionManager) deliverJoinResult(result joinResult) {
 	manager.pendingJoinMu.Lock()
 	ch := manager.pendingJoin
 	manager.pendingJoinMu.Unlock()
 
 	if ch == nil {
-		manager.logger.Warn("received room-peers but no join is pending")
+		manager.logger.Warn("received signalling response but no join is pending")
 		return
 	}
-	ch <- data.Peers
+	ch <- result
 }
 
 func (manager *ConnectionManager) SendDisconnectMessage(ctx context.Context) error {
@@ -293,7 +316,7 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 
 	// Register the channel before sending to avoid a race where the response
 	// arrives before we're ready to receive it.
-	ch := make(chan []string, 1)
+	ch := make(chan joinResult, 1)
 	manager.pendingJoinMu.Lock()
 	manager.pendingJoin = ch
 	manager.pendingJoinMu.Unlock()
@@ -314,7 +337,11 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 	select {
 	case <-ctx.Done():
 		return peers, ctx.Err()
-	case peers = <-ch:
+	case result := <-ch:
+		if result.err != nil {
+			return peers, result.err
+		}
+		peers = result.peers
 		manager.logger.Info("joined room", "room", roomName, "existing_peers", len(peers))
 		for _, peerUUID := range peers {
 			id, err := uuid.Parse(peerUUID)

@@ -299,6 +299,7 @@ func newMicTestBtn(state *AppState, client *WSClient) *widget.Button {
 
 func main() {
 	configFilePath := flag.String("configFilePath", "config.yaml", "Set the file path to the config file.")
+	serverAddr := flag.String("serverAddr", "ws://127.0.0.1:42069/ws", "WebSocket address of the roundtable backend.")
 	flag.Parse()
 
 	config.LoadConfig(*configFilePath)
@@ -339,7 +340,7 @@ func main() {
 		}
 		w.Close()
 	})
-	state.Users = []User{{"DefaultUser", false}}
+	state.Users = []User{}
 
 	statusLabel := widget.NewLabel("Connecting to backend")
 	userList := newUserList(&state)
@@ -400,7 +401,7 @@ func main() {
 	content := container.NewBorder(top, bottom, nil, nil, userList)
 	w.SetContent(content)
 
-	err = connectWS(&client, "ws://127.0.0.1:42069/ws", &state, func() {
+	err = connectWS(&client, *serverAddr, &state, func() {
 		fyne.Do(func() {
 			statusLabel.SetText("Connected")
 			state.mu.Lock()

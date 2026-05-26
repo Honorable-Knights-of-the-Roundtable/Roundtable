@@ -54,6 +54,7 @@ func setViperDefaults() {
 	viper.SetDefault("loglevel", "info")
 	viper.SetDefault("logfile", "")
 	viper.SetDefault("localport", 1066)
+	viper.SetDefault("ipcaddress", "localhost:42069")
 	viper.SetDefault("timeout", 30)
 	viper.SetDefault("codecs", []string{"CodecOpus48000Mono", "CodecOpus24000Mono", "CodecOpus48000Stereo", "CodecOpus24000Stereo"})
 	viper.SetDefault("OPUSFrameDuration", encoderdecoder.OPUS_FRAME_DURATION_20_MS)

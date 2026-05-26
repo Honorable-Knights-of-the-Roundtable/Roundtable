@@ -141,7 +141,7 @@ func main() {
 		slog.Error("error in making new app", "err", err)
 		panic(err)
 	}
-	listenAddress := "localhost:42069"
+	listenAddress := viper.GetString("ipcaddress")
 
 	server := NewServer(app)
 	err = server.Start(listenAddress)
