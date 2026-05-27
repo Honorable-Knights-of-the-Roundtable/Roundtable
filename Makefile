@@ -9,7 +9,7 @@
 .PHONY: git_submodule_init git_submodule_init_opus git_submodule_init_rtaudiowrapper
 
 # Run me once on clone
-git_submodule_init: git_submodule_init_base git_submodule_init_opus git_submodule_init_rtaudiowrapper
+git_submodule_init: git_submodule_init_base git_submodule_init_opus git_submodule_init_rtaudiowrapper git_submodule_build build
 	go mod tidy
 
 git_submodule_init_base:
@@ -48,10 +48,35 @@ git_submodule_build_rtaudiowrapper:
 # 
 # Example building can be found in the respective example directory
 
-build: 
-	go build -o bin/roundtable.exe cmd/main.go && cp cmd/config.yaml bin
+build:
+	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin && cp cmd/local_config_peer2.yaml bin
+
+build_gui:
+	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin/gui_config.yaml && cp cmd/config.yaml bin/server_config.yaml
+
+build_all: build build_gui
+
+run_gui: build_all
+	cd bin && ./gui.exe -configFilePath gui_config.yaml -serverBin ./roundtable.exe -serverConfigFilePath server_config.yaml
+
+run_gui_dev: build_all
+	cd bin && ./gui.exe -configFilePath gui_config.yaml -serverBin ./roundtable.exe -serverConfigFilePath local_config.yaml
+
+run_gui_peer: build_gui
+	cd bin && ./gui.exe -serverAddr ws://127.0.0.1:42070/ws
+
 run: build
 	cd bin && ./roundtable.exe
+
+run_dev: build
+	cd bin && ./roundtable.exe -configFilePath local_config.yaml
+
+run_peer: build
+	cd bin && ./roundtable.exe -configFilePath local_config_peer2.yaml
+
+build_dev:
+	air --build.cmd "make build" \
+		--build.full_bin "./bin/roundtable.exe -configFilePath ./bin/local_config.yaml"
 
 # TODO: Tags? rtaudio include/exclude tag?
 

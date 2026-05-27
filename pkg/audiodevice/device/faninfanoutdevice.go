@@ -180,7 +180,6 @@ func (source *fanInSource) listen() {
 	go func() {
 		for frame := range source.stream {
 			source.mutex.Lock()
-
 			// If new frame is big enough to handle the entire buffer by itself,
 			// just overwrite all existing data
 			if len(frame) > len(source.buffer) {

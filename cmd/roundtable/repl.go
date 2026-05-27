@@ -3,36 +3,48 @@ package main
 import (
 	"bufio"
 	"context"
-	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/application"
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/cmd/config"
-
-	// "github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/audioapi"
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/encoderdecoder"
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/networking"
-	"github.com/Honorable-Knights-of-the-Roundtable/rtaudiowrapper"
-
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/peer"
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/internal/utils"
-
-	// "github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice/device"
 	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/audiodevice"
-	"github.com/Honorable-Knights-of-the-Roundtable/roundtable/pkg/signalling"
-	"github.com/google/uuid"
-	"github.com/pion/webrtc/v4"
-	"github.com/spf13/viper"
+	"github.com/Honorable-Knights-of-the-Roundtable/rtaudiowrapper"
 )
+
+func join(cmd string, app *application.App) {
+	scanner := bufio.NewScanner(os.Stdin)
+	parts := strings.SplitN(cmd, " ", 2)
+	var roomName string
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		roomName = strings.TrimSpace(parts[1])
+	} else {
+		fmt.Printf("Enter room name: ")
+		if !scanner.Scan() {
+			return
+		}
+		roomName = strings.TrimSpace(scanner.Text())
+	}
+	if roomName == "" {
+		fmt.Fprintf(os.Stderr, "room name cannot be empty\n")
+		return
+	}
+	ctx := context.Background()
+	peers, err := app.JoinRoom(ctx, roomName)
+	if err != nil {
+		slog.Error("error joining room", "room", roomName, "err", err)
+	}
+
+	if peers == nil {
+		slog.Error("Peers was nil even with app.JoinRoom succeeding, something is probably wrong ", "room", roomName)
+	}
+	fmt.Printf("Users in room: %d\n", len(peers))
+}
 
 func Record(outpath string, inputDevice audiodevice.AudioSourceDevice) {
 	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
@@ -171,134 +183,6 @@ cleanup:
 	}
 	fmt.Printf("Successfully wrote %s\n", outpath)
 }
-func initializeConnectionManager(localPeerIdentifier signalling.PeerIdentifier) *networking.ConnectionManager {
-	// avoid polluting the main namespace with the options and config structs
-
-	codecs, err := utils.GetUserAuthorizedCodecs(viper.GetStringSlice("codecs"))
-	if err != nil {
-		slog.Error("error when loading user authorized codecs", "err", err)
-		panic(err)
-	}
-	if len(codecs) == 0 {
-		slog.Error("at least one codec must be authorized in config")
-		panic("no codecs authorized")
-	}
-	slog.Debug("authorized codecs", "codecs", codecs)
-
-	// --------------------------------------------------------------------------------
-
-	opusFactory, err := encoderdecoder.NewOpusFactory(
-		viper.GetDuration("OPUSFrameDuration"),
-		viper.GetInt("OPUSBufferSafetyFactor"),
-	)
-	if err != nil {
-		slog.Error("error when creating OPUS factory", "err", err)
-		panic(err)
-	}
-
-	peerFactory := peer.NewPeerFactory(
-		codecs[0],
-		opusFactory,
-		slog.Default(),
-	)
-
-	// --------------------------------------------------------------------------------
-
-	webrtcConfig := webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{{URLs: viper.GetStringSlice("ICEServers")}},
-	}
-
-	offerOptions := webrtc.OfferOptions{}
-	answerOptions := webrtc.AnswerOptions{}
-
-	manager, err := networking.NewConnectionManager(
-		viper.GetString("signallingserver"),
-		peerFactory,
-		localPeerIdentifier,
-		codecs,
-		webrtcConfig,
-		offerOptions,
-		answerOptions,
-		slog.Default(),
-	)
-	if err != nil {
-		slog.Error("error when creating connection manager", "err", err)
-		panic(err)
-	}
-	return manager
-}
-
-const defaultFile = "recordings/default.wav"
-const micTestFile = "recordings/micTestFile.wav"
-
-var currentFile string
-var selectedDeviceID int = -1 // -1 means use default
-
-func clampChannels(n int) int {
-	if n > 2 {
-		return 2
-	}
-	return n
-}
-
-func newLocalPeerIdentifier() signalling.PeerIdentifier {
-	return signalling.PeerIdentifier{
-		Uuid:     uuid.New(),
-		PublicIP: "", 
-	}
-}
-
-//	func changeInputDeviceFromId(id int) {
-//		audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-//		if err != nil {
-//			log.Fatal(err)
-//		}
-//		defer audio.Destroy()
-//
-//		devices, err := audio.Devices()
-//		for _, device := range devices {
-//			fmt.Println(device.String())
-//		}
-//		if err != nil {
-//			log.Fatal(err)
-//		}
-//
-//		var inputDevice rtaudiowrapper.DeviceInfo
-//
-//		// Normal input recording mode
-//		if selectedDeviceID >= 0 && selectedDeviceID < len(devices) {
-//			inputDevice = devices[selectedDeviceID]
-//		} else {
-//			inputDevice = audio.DefaultInputDevice()
-//			fmt.Printf("Recording from default device: %s\n", inputDevice.Name)
-//		}
-//
-//		if inputDevice.NumInputChannels == 0 {
-//			log.Fatal("Selected device has no input channels. Choose a different device.")
-//		}
-//	}
-func join(cmd string, app *application.App) {
-	scanner := bufio.NewScanner(os.Stdin)
-	parts := strings.SplitN(cmd, " ", 2)
-	var roomName string
-	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
-		roomName = strings.TrimSpace(parts[1])
-	} else {
-		fmt.Printf("Enter room name: ")
-		if !scanner.Scan() {
-			return
-		}
-		roomName = strings.TrimSpace(scanner.Text())
-	}
-	if roomName == "" {
-		fmt.Fprintf(os.Stderr, "room name cannot be empty\n")
-		return
-	}
-	ctx := context.Background()
-	if err := app.JoinRoom(ctx, roomName); err != nil {
-		slog.Error("error joining room", "room", roomName, "err", err)
-	}
-}
 
 func recordPeer(app *application.App) {
 	duration := 5 * time.Second
@@ -345,7 +229,7 @@ func micTest(app *application.App) {
 		cancel()
 	}()
 
-	samples, sampleRate, numChannels, err := app.TapInputAudio(ctx)
+	samples, sampleRate, numChannels, err := app.TapInputAudioWithStats(ctx)
 	cancel()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "recording error: %v\n", err)
@@ -363,7 +247,6 @@ func micTest(app *application.App) {
 		}
 	}
 	fmt.Printf("Recorded %d samples, peak level: %.2f%%\n", len(samples), peak*100)
-
 
 	// Mix stereo down to mono using the user's selected channel so both ears hear the playback.
 	if numChannels == 2 {
@@ -399,8 +282,7 @@ func micTest(app *application.App) {
 	}
 
 	fmt.Printf("Playing from: %s\n", micTestFile)
-	outputDeviceName := app.AudioOutputDevice.GetDeviceProperties().Name
-	if err := rtaudiowrapper.Speaker(micTestFile, outputDeviceName); err != nil {
+	if err := rtaudiowrapper.Speaker(micTestFile, app.GetCurrentOutputDevice().Name); err != nil {
 		fmt.Fprintf(os.Stderr, "Error playing file: %v\n", err)
 		os.Exit(1)
 	}
@@ -424,71 +306,40 @@ func readDeviceID(devices []audioapi.AudioIODevice) (int, bool) {
 	return id, true
 }
 
-func printDevFromID(id int) string{
-	audio, err := rtaudiowrapper.Create(rtaudiowrapper.APIUnspecified)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rtaudio device\n")
-	}
-	defer audio.Destroy()
-
-	devices, err := audio.Devices()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s", err)
-	}
-	for _, device := range devices {
-		if id == device.ID {
-			inputCh := fmt.Sprintf("%d", clampChannels(device.NumInputChannels))
-			outputCh := fmt.Sprintf("%d", clampChannels(device.NumOutputChannels))
-			marker := ""
-			duplexCh := fmt.Sprintf("%d", clampChannels(device.NumDuplexChannels))
-			return fmt.Sprintf("%-50s %-8s %-8s %-8s%s", device.Name, inputCh, outputCh, duplexCh, marker)
-		}
-	}
-	return "non found"
-}
-
 func printDevices(devices []audioapi.AudioIODevice) string {
 	var sb strings.Builder
 	for i, dev := range devices {
 		inputCh := fmt.Sprintf("%d", clampChannels(dev.DeviceProperties.NumChannels))
-		fmt.Fprintf(&sb, "%-4d %-50s %-8s \n",i, dev.Name, inputCh)
+		fmt.Fprintf(&sb, "%-4d %-50s %-8s \n", i, dev.Name, inputCh)
 	}
 
 	return sb.String()
 }
 
-func selectInput(api *audioapi.RtAudioApi, app *application.App) {
-	devices := api.InputDevices()
-	currentDev := printDevFromID(app.AudioInputDevice.GetDeviceProperties().ID)
-	fmt.Println("Current Input Device:", currentDev)
+func selectInput(app *application.App) {
+	devices := app.GetInputDevices()
+	fmt.Println("Current Input Device:", app.GetCurrentInputDevice().Name)
 	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
 	}
-	newDev, err := api.InitInputDeviceFromID(devices[id])
-	if err != nil {
+	if err := app.SelectInputDevice(devices[id]); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init input device: %v\n", err)
-		return
 	}
-	app.SetInputDevice(newDev)
 }
 
-func selectOutput(api *audioapi.RtAudioApi, app *application.App) {
-	devices := api.OutputDevices()
-	currentDev := printDevFromID(app.AudioOutputDevice.GetDeviceProperties().ID)
-	fmt.Println("Current Output Device:", currentDev)
+func selectOutput(app *application.App) {
+	devices := app.GetOutputDevices()
+	fmt.Println("Current Output Device:", app.GetCurrentOutputDevice().Name)
 	fmt.Println(printDevices(devices))
 	id, ok := readDeviceID(devices)
 	if !ok {
 		return
 	}
-	newDev, err := api.InitOutputDeviceFromID(devices[id])
-	if err != nil {
+	if err := app.SelectOutputDevice(devices[id]); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to init output device: %v\n", err)
-		return
 	}
-	app.SetOutputDevice(newDev)
 }
 
 func printCommands() {
@@ -505,12 +356,17 @@ func printCommands() {
 	fmt.Fprintf(os.Stderr, "    close|exit         - exit the repl\n")
 }
 
-func disconnect(app *application.App) {
+func disconnectAllRooms(app *application.App) {
 	app.DisconnectAll()
+	ctx := context.Background()
+	err := app.DisconnectRooms(ctx)
+	if err != nil {
+		slog.Error("Error with leaving room", "err", err)
+	}
 	fmt.Println("Disconnected from room")
 }
 
-func repl(api *audioapi.RtAudioApi, app *application.App) {
+func repl(app *application.App) {
 	scanner := bufio.NewScanner(os.Stdin)
 	fmt.Printf("\n====== Roundtable REPL ======\n")
 	printCommands()
@@ -532,9 +388,9 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 		case "join":
 			join(line, app)
 		case "input":
-			selectInput(api, app)
+			selectInput(app)
 		case "output":
-			selectOutput(api, app)
+			selectOutput(app)
 		case "record-peer":
 			recordPeer(app)
 		case "test":
@@ -564,7 +420,7 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			app.SetInputGain(g)
 			fmt.Printf("Input gain set to %.1f\n", g)
 		case "disconnect":
-			disconnect(app)
+			disconnectAllRooms(app)
 		case "help":
 			printCommands()
 		case "close", "exit":
@@ -576,71 +432,12 @@ func repl(api *audioapi.RtAudioApi, app *application.App) {
 			printCommands()
 		}
 	}
-
 }
 
-func main() {
-	configFilePath := flag.String("configFilePath", "config.yaml", "Set the file path to the config file.")
-	flag.Parse()
-
-	config.LoadConfig(*configFilePath)
-	logFilePointer, err := utils.ConfigureDefaultLogger(
-		viper.GetString("loglevel"),
-		viper.GetString("logfile"),
-		slog.HandlerOptions{},
-	)
-	if err != nil {
-		slog.Error("error while configuring default logger", "err", err)
-		panic(err)
+// TODO(Jake): This shouldn't be here probably
+func clampChannels(n int) int {
+	if n > 2 {
+		return 2
 	}
-	if logFilePointer != nil {
-		defer logFilePointer.Close()
-	}
-
-	// --------------------------------------------------------------------------------
-	// Handle signals to shutdown gracefully on CTRL+C
-
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-	signalInterruptContext, signalInterruptContextCancel := context.WithCancel(context.Background())
-	go func() {
-		<-sigs
-		signal.Reset()
-		signalInterruptContextCancel()
-	}()
-
-	// --------------------------------------------------------------------------------
-	// Setup RtAudioApi
-	frameDuration := time.Millisecond * 20
-	api, err := audioapi.NewRtAudioApi(frameDuration)
-
-	if err != nil {
-		slog.Error("error while creating rtaudio api", "err", err)
-		return
-	}
-
-	localPeerIdentifier := signalling.PeerIdentifier{
-		Uuid:     uuid.New(),
-		PublicIP: "", 
-	}
-
-	connectionManager := initializeConnectionManager(localPeerIdentifier)
-
-	app, err := application.NewApp(api, connectionManager)
-
-	if err != nil {
-		slog.Error("error in making new app", "err", err)
-		panic(err)
-	}
-	// --------------------------------------------------------------------------------
-	// Start repl
-	repl(api, app)
-
-	// --------------------------------------------------------------------------------
-
-	<-signalInterruptContext.Done()
-	// If interrupted with CTRL+C, just exit
-	slog.Debug("closing gracefully")
-	app.Close()
-
+	return n
 }

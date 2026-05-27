@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	// "log/slog"
+
+	// "log/slog"
 	"sync"
 	"time"
 
@@ -89,6 +91,18 @@ type App struct {
 	// For stereo input devices: which channel to use when converting to mono.
 	// 0 = left (Input 1), 1 = right (Input 2). Default 0.
 	preferredInputChannel int
+
+	// The AudioIODevice metadata for the currently selected input/output devices.
+	// Kept in sync with AudioInputDevice/AudioOutputDevice so callers can get the
+	// name and ID without cross-referencing the device list.
+	currentInputDevice  audioapi.AudioIODevice
+	currentOutputDevice audioapi.AudioIODevice
+
+	micMonitorMu   sync.Mutex
+	micMonitorStop func()
+
+	currentRoom   string
+	currentRoomMu sync.Mutex
 }
 
 // --------------------------------------------------------------------------------
@@ -117,12 +131,14 @@ func NewApp(
 		return nil, err
 	}
 	app.SetInputDevice(defaultInputDevice)
+	app.currentInputDevice = findDeviceByID(audioIODeviceAPI.InputDevices(), defaultInputDevice.GetDeviceProperties().ID)
 
 	defaultOutputDevice, err := audioIODeviceAPI.InitDefaultOutputDevice()
 	if err != nil {
 		return nil, err
 	}
 	app.SetOutputDevice(defaultOutputDevice)
+	app.currentOutputDevice = findDeviceByID(audioIODeviceAPI.OutputDevices(), defaultOutputDevice.GetDeviceProperties().ID)
 
 	// --------------------------------------------------------------------------------
 	// Start listening for new peers
@@ -133,6 +149,18 @@ func NewApp(
 	}()
 
 	return app, nil
+}
+
+func (app *App) SetRoomUpdateCallback(cb func(peers []signalling.PeerInfo)) {
+	app.connectionManager.SetRoomUpdateCallback(cb)
+}
+
+func (app *App) SetUsername(name string) error {
+	return app.connectionManager.Rename(name)
+}
+
+func (app *App) GetUsername() string {
+	return app.connectionManager.GetUsername()
 }
 
 func (app *App) handleConnectedPeer(newPeer *peer.Peer) {
@@ -336,10 +364,32 @@ func (app *App) SetOutputDevice(outputDevice audiodevice.AudioSinkDevice) {
 
 	// slog.Debug("updated set output device", "new properties", app.audioOutputDevice.GetDeviceProperties())
 }
+func (app *App) DisconnectRooms(ctx context.Context) error {
+	app.currentRoomMu.Lock()
+	app.currentRoom = ""
+	app.currentRoomMu.Unlock()
+	return app.connectionManager.SendDisconnectMessage(ctx)
+}
 
 // JoinRoom joins a named room on the signalling server and dials all peers already in it.
-func (app *App) JoinRoom(ctx context.Context, roomName string) error {
-	return app.connectionManager.JoinRoom(ctx, roomName)
+// Returns an error if already in a room.
+func (app *App) JoinRoom(ctx context.Context, roomName string) ([]signalling.PeerInfo, error) {
+	app.currentRoomMu.Lock()
+	if app.currentRoom != "" {
+		room := app.currentRoom
+		app.currentRoomMu.Unlock()
+		return nil, fmt.Errorf("already in room %q, disconnect first", room)
+	}
+	app.currentRoom = roomName
+	app.currentRoomMu.Unlock()
+
+	peers, err := app.connectionManager.JoinRoom(ctx, roomName)
+	if err != nil {
+		app.currentRoomMu.Lock()
+		app.currentRoom = ""
+		app.currentRoomMu.Unlock()
+	}
+	return peers, err
 }
 
 // propsWithChannel returns a copy of props with StereoChannelIndex set to the app's current preference.
@@ -369,6 +419,53 @@ func (app *App) SetInputChannel(idx int) {
 	}
 }
 
+func (app *App) GetInputDevices() []audioapi.AudioIODevice {
+	return app.audioIODeviceAPI.InputDevices()
+}
+
+func (app *App) GetOutputDevices() []audioapi.AudioIODevice {
+	return app.audioIODeviceAPI.OutputDevices()
+}
+
+func (app *App) GetCurrentInputDevice() audioapi.AudioIODevice {
+	return app.currentInputDevice
+}
+
+func (app *App) GetCurrentOutputDevice() audioapi.AudioIODevice {
+	return app.currentOutputDevice
+}
+
+// SelectInputDevice opens the given device and makes it the active input.
+func (app *App) SelectInputDevice(dev audioapi.AudioIODevice) error {
+	opened, err := app.audioIODeviceAPI.InitInputDeviceFromID(dev)
+	if err != nil {
+		return err
+	}
+	app.SetInputDevice(opened)
+	app.currentInputDevice = dev
+	return nil
+}
+
+// SelectOutputDevice opens the given device and makes it the active output.
+func (app *App) SelectOutputDevice(dev audioapi.AudioIODevice) error {
+	opened, err := app.audioIODeviceAPI.InitOutputDeviceFromID(dev)
+	if err != nil {
+		return err
+	}
+	app.SetOutputDevice(opened)
+	app.currentOutputDevice = dev
+	return nil
+}
+
+func findDeviceByID(devices []audioapi.AudioIODevice, id int) audioapi.AudioIODevice {
+	for _, dev := range devices {
+		if dev.ID == id {
+			return dev
+		}
+	}
+	return audioapi.AudioIODevice{}
+}
+
 // GetPreferredInputChannel returns the current 0-based channel index preference (0 = Input 1, 1 = Input 2).
 func (app *App) GetPreferredInputChannel() int {
 	return app.preferredInputChannel
@@ -378,6 +475,11 @@ func (app *App) GetPreferredInputChannel() int {
 // 1.0 is unity gain. Use values > 1.0 to boost a quiet input device.
 func (app *App) SetInputGain(gain float32) {
 	app.inputAugmentationDevice.SetVolumeAdjustMagnitude(gain)
+}
+
+// Not sure if audioIODeviceAPI should just be public but will do getters for now
+func (app *App) GetInputGain() float32 {
+	return app.inputAugmentationDevice.GetVolumeAdjustMagnitude()
 }
 
 // TapInputAudio records raw audio from the local mic input until ctx is cancelled.
@@ -397,6 +499,67 @@ func (app *App) TapInputAudio(ctx context.Context) ([]float32, int, int, error) 
 			}
 			samples = append(samples, f...)
 		}
+	}
+}
+
+// TapInputAudio records raw audio from the local mic input until ctx is cancelled.
+// Returns float32 samples plus the device's sample rate and channel count.
+// Prints incoming audio levels, will be reworked to provide some kind of data output instead,
+// but fine for now
+func (app *App) TapInputAudioWithStats(ctx context.Context) ([]float32, int, int, error) {
+	tap := app.inputFanOutDevice.GetStream()
+	props := app.AudioInputDevice.GetDeviceProperties()
+
+	var samples []float32
+	for {
+		select {
+		case <-ctx.Done():
+			return samples, props.SampleRate, props.NumChannels, nil
+		case f, ok := <-tap:
+			if !ok {
+				return samples, props.SampleRate, props.NumChannels, nil
+			}
+
+			var peak float32
+			for _, s := range f {
+				if s < 0 {
+					s = -s
+				}
+				if s > peak {
+					peak = s
+				}
+			}
+			fmt.Printf("\rRecorded %d samples, peak level: %.2f%%", len(samples), peak*100)
+			samples = append(samples, f...)
+		}
+	}
+}
+
+func (app *App) StartMicSelfPlayback() {
+	app.micMonitorMu.Lock()
+	defer app.micMonitorMu.Unlock()
+
+	if app.micMonitorStop != nil {
+		return // already running
+	}
+
+	tap := app.inputFanOutDevice.GetStream()
+	conv := device.NewAudioFormatConversionDevice(
+		app.inputFanOutDevice.GetDeviceProperties(),
+		app.outputFanInDevice.GetDeviceProperties(),
+	)
+	conv.SetStream(tap)
+	app.outputFanInDevice.SetStream(conv.GetStream())
+	app.micMonitorStop = conv.Close
+}
+
+func (app *App) StopMicSelfPlayback() {
+	app.micMonitorMu.Lock()
+	defer app.micMonitorMu.Unlock()
+
+	if app.micMonitorStop != nil {
+		app.micMonitorStop()
+		app.micMonitorStop = nil
 	}
 }
 

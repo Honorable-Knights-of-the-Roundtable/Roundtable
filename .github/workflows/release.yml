@@ -20,7 +20,7 @@ jobs:
           go-version-file: go.mod
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev g++
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev libpulse-dev libjack-jackd2-dev g++ libgl1-mesa-dev xorg-dev
 
       - name: Cache rtaudio native object
         uses: actions/cache@v4
@@ -32,14 +32,18 @@ jobs:
         working-directory: internal/rtaudiowrapper
         run: go generate .
 
-      - name: Build
-        run: go build -o roundtable ./cmd
+      - name: Build server
+        run: go build -o roundtable ./cmd/roundtable
+
+      - name: Build GUI
+        run: go build -o gui ./cmd/gui
 
       - name: Package release
         run: |
           mkdir release
-          cp roundtable release/
+          cp roundtable gui release/
           cp cmd/config.yaml release/
+          cp cmd/gui/config.yaml release/gui-config.yaml
           zip -j roundtable-${{ github.ref_name }}-linux.zip release/*
 
       - name: Create release
@@ -69,7 +73,7 @@ jobs:
         with:
           msystem: MINGW64
           update: false
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-opus zip
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-opus mingw-w64-x86_64-pkg-config zip
 
       - name: Cache opus install
         id: cache-opus
@@ -96,15 +100,19 @@ jobs:
         working-directory: internal/rtaudiowrapper
         run: go generate .
 
-      - name: Build
-        run: go build -o roundtable.exe ./cmd
+      - name: Build server
+        run: go build -o roundtable.exe ./cmd/roundtable
+
+      - name: Build GUI
+        run: go build -o gui.exe ./cmd/gui
 
       - name: Package release
         shell: msys2 {0}
         run: |
           mkdir -p release
-          cp roundtable.exe release/
+          cp roundtable.exe gui.exe release/
           cp cmd/config.yaml release/
+          cp cmd/gui/config.yaml release/gui-config.yaml
           cp /mingw64/bin/libwinpthread-1.dll release/
           zip -j roundtable-${{ github.ref_name }}-windows.zip release/*
 

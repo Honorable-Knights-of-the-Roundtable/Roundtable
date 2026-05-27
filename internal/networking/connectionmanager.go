@@ -14,6 +14,11 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+type joinResult struct {
+	peers []signalling.PeerInfo
+	err   error
+}
+
 // ConnectionManager handles networking in the application using WebRTC
 //
 // Specifically, once instantiated, the ConnectionManager handles listening for connections,
@@ -57,9 +62,13 @@ type ConnectionManager struct {
 	pendingDials   map[uuid.UUID]chan signalling.SignallingAnswer
 	pendingDialsMu sync.Mutex
 
-	// pendingJoin receives the peer list returned by the server after a JoinRoom call.
-	pendingJoin   chan []string
+	// pendingJoin receives the result of a JoinRoom call from the signalling server.
+	pendingJoin   chan joinResult
 	pendingJoinMu sync.Mutex
+
+	// onRoomUpdate is called on every room-update from the signalling server,
+	// including unsolicited ones (other peers joining or leaving).
+	onRoomUpdate func(peers []signalling.PeerInfo)
 
 	// A channel to return established incoming connections.
 	//
@@ -131,10 +140,14 @@ func NewConnectionManager(
 		ConnectedPeerChannel:    make(chan *peer.Peer),
 	}
 
-	// Register our ID with the signalling server so it can route messages to us
+	// Register our ID and display name with the signalling server
+	regData, _ := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: localPeerIdentifier.Name})
 	if err := manager.sendWSMessage(signalling.WSMessage{
 		Type: "register",
 		From: localPeerIdentifier.Uuid.String(),
+		Data: regData,
 	}); err != nil {
 		ws.Close()
 		return nil, fmt.Errorf("failed to register with signalling server: %w", err)
@@ -166,8 +179,10 @@ func (manager *ConnectionManager) readLoop() {
 			go manager.handleIncomingOffer(msg)
 		case "answer":
 			manager.handleIncomingAnswer(msg)
-		case "room-peers":
-			manager.handleRoomPeers(msg)
+		case "room-update":
+			manager.handleRoomUpdate(msg)
+		case "error":
+			manager.handleSignallingError(msg)
 		default:
 			manager.logger.Warn("unknown signalling message type", "type", msg.Type)
 		}
@@ -244,40 +259,95 @@ func (manager *ConnectionManager) handleIncomingOffer(msg signalling.WSMessage) 
 	}
 }
 
-// handleRoomPeers delivers the peer list from the server to the waiting JoinRoom call.
-func (manager *ConnectionManager) handleRoomPeers(msg signalling.WSMessage) {
+// handleRoomUpdate processes a room-update from the signalling server.
+// It unblocks a pending JoinRoom call (if any) and fires the ongoing room update callback.
+func (manager *ConnectionManager) handleRoomUpdate(msg signalling.WSMessage) {
 	var data struct {
-		Peers []string `json:"peers"`
+		Peers []signalling.PeerInfo `json:"peers"`
 	}
 	if err := json.Unmarshal(msg.Data, &data); err != nil {
-		manager.logger.Error("error while unmarshalling room-peers", "err", err)
+		manager.logger.Error("error while unmarshalling room-update", "err", err)
 		return
 	}
 
 	manager.pendingJoinMu.Lock()
 	ch := manager.pendingJoin
 	manager.pendingJoinMu.Unlock()
+	if ch != nil {
+		ch <- joinResult{peers: data.Peers}
+	}
 
-	if ch == nil {
-		manager.logger.Warn("received room-peers but no join is pending")
+	if manager.onRoomUpdate != nil {
+		manager.onRoomUpdate(data.Peers)
+	}
+}
+
+// handleSignallingError delivers a server-side error to the waiting JoinRoom call (if any).
+func (manager *ConnectionManager) handleSignallingError(msg signalling.WSMessage) {
+	var data struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(msg.Data, &data); err != nil {
+		manager.logger.Error("error while unmarshalling signalling error", "err", err)
 		return
 	}
-	ch <- data.Peers
+	manager.logger.Warn("signalling server error", "message", data.Message)
+
+	manager.pendingJoinMu.Lock()
+	ch := manager.pendingJoin
+	manager.pendingJoinMu.Unlock()
+	if ch != nil {
+		ch <- joinResult{err: fmt.Errorf("%s", data.Message)}
+	}
+}
+
+func (manager *ConnectionManager) SetRoomUpdateCallback(cb func(peers []signalling.PeerInfo)) {
+	manager.onRoomUpdate = cb
+}
+
+func (manager *ConnectionManager) GetUsername() string {
+	return manager.localPeerIdentifier.Name
+}
+
+// Rename updates the local display name and notifies the signalling server.
+func (manager *ConnectionManager) Rename(name string) error {
+	manager.localPeerIdentifier.Name = name
+	renameData, _ := json.Marshal(struct {
+		Name string `json:"name"`
+	}{Name: name})
+	return manager.sendWSMessage(signalling.WSMessage{
+		Type: "rename",
+		From: manager.localPeerIdentifier.Uuid.String(),
+		Data: renameData,
+	})
+}
+
+func (manager *ConnectionManager) SendDisconnectMessage(ctx context.Context) error {
+	if err := manager.sendWSMessage(signalling.WSMessage{
+		Type: "disconnect",
+		From: manager.localPeerIdentifier.Uuid.String(),
+		// Data: "",
+	}); err != nil {
+		return fmt.Errorf("failed to send disconnect message: %w", err)
+	}
+	return nil
 }
 
 // JoinRoom joins a named room on the signalling server and dials every peer already in it.
 // Dials are made concurrently so a slow peer doesn't block the others.
-func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string) error {
+func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string) ([]signalling.PeerInfo, error) {
+
+	var peers []signalling.PeerInfo
 	joinData, err := json.Marshal(struct {
 		Room string `json:"room"`
 	}{Room: roomName})
 	if err != nil {
-		return fmt.Errorf("failed to marshal join payload: %w", err)
+		return peers, fmt.Errorf("failed to marshal join payload: %w", err)
 	}
 
 	// Register the channel before sending to avoid a race where the response
 	// arrives before we're ready to receive it.
-	ch := make(chan []string, 1)
+	ch := make(chan joinResult, 1)
 	manager.pendingJoinMu.Lock()
 	manager.pendingJoin = ch
 	manager.pendingJoinMu.Unlock()
@@ -292,19 +362,26 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 		From: manager.localPeerIdentifier.Uuid.String(),
 		Data: joinData,
 	}); err != nil {
-		return fmt.Errorf("failed to send join message: %w", err)
+		return peers, fmt.Errorf("failed to send join message: %w", err)
 	}
 
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
-	case peers := <-ch:
-		manager.logger.Info("joined room", "room", roomName, "existing_peers", len(peers))
-		for _, peerUUID := range peers {
-			id, err := uuid.Parse(peerUUID)
+		return peers, ctx.Err()
+	case result := <-ch:
+		if result.err != nil {
+			return peers, result.err
+		}
+		peers = result.peers
+		manager.logger.Info("joined room", "room", roomName, "total_peers", len(peers))
+		for _, info := range peers {
+			id, err := uuid.Parse(info.ID)
 			if err != nil {
-				manager.logger.Warn("invalid peer UUID in room-peers", "uuid", peerUUID)
+				manager.logger.Warn("invalid peer UUID in room-update", "uuid", info.ID)
 				continue
+			}
+			if id == manager.localPeerIdentifier.Uuid {
+				continue // don't dial ourselves
 			}
 			remotePeer := signalling.PeerIdentifier{Uuid: id}
 			go func(p signalling.PeerIdentifier) {
@@ -314,7 +391,8 @@ func (manager *ConnectionManager) JoinRoom(ctx context.Context, roomName string)
 			}(remotePeer)
 		}
 	}
-	return nil
+
+	return peers, nil
 }
 
 // handleIncomingAnswer correlates an incoming answer with the waiting Dial call via the offer UUID.

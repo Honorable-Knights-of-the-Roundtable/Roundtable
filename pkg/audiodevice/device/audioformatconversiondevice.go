@@ -137,6 +137,16 @@ func (d *AudioFormatConversionDevice) GetSourceDeviceProperties() audiodevice.De
 	return d.sourceProperties
 }
 
+// Convert applies the format conversion pipeline to a single frame synchronously.
+// Use this instead of SetStream/GetStream when you want to convert inline in a goroutine
+// without introducing an extra channel hop.
+func (d *AudioFormatConversionDevice) Convert(f frame.PCMFrame) frame.PCMFrame {
+	for _, fn := range d.formatConversionFunctions {
+		f = fn(f)
+	}
+	return f
+}
+
 // --------------------------------------------------------------------------------
 
 // There is an expectation that an audioFormatConversionFunction will produce
