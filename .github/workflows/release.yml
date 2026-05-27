@@ -42,8 +42,8 @@ jobs:
         run: |
           mkdir release
           cp roundtable gui release/
-          cp cmd/config.yaml release/
-          cp cmd/gui/config.yaml release/gui-config.yaml
+          cp cmd/config.yaml release/server_config.yaml
+          cp cmd/gui/config.yaml release/gui_config.yaml
           zip -j roundtable-${{ github.ref_name }}-linux.zip release/*
 
       - name: Create release
@@ -111,8 +111,8 @@ jobs:
         run: |
           mkdir -p release
           cp roundtable.exe gui.exe release/
-          cp cmd/config.yaml release/
-          cp cmd/gui/config.yaml release/gui-config.yaml
+          cp cmd/config.yaml release/server_config.yaml
+          cp cmd/gui/config.yaml release/gui_config.yaml
           cp /mingw64/bin/libwinpthread-1.dll release/
           zip -j roundtable-${{ github.ref_name }}-windows.zip release/*
 

@@ -276,10 +276,10 @@ func newMicTestBtn(state *AppState, client *WSClient) *widget.Button {
 // ---- Main -------------------------------------------------------------------
 
 func main() {
-	configFilePath := flag.String("configFilePath", "config.yaml", "Set the file path to the config file.")
+	configFilePath := flag.String("configFilePath", "gui_config.yaml", "Set the file path to the GUI config file.")
 	serverAddr := flag.String("serverAddr", "ws://127.0.0.1:42069/ws", "WebSocket address of the roundtable backend.")
-	serverBin := flag.String("serverBin", "", "Path to roundtable server binary to spawn (empty = connect to existing).")
-	serverConfigFilePath := flag.String("serverConfigFilePath", "local_config.yaml", "Config file path for the spawned roundtable server.")
+	serverBin := flag.String("serverBin", "roundtable.exe", "Path to roundtable server binary to spawn (empty = connect to existing).")
+	serverConfigFilePath := flag.String("serverConfigFilePath", "server_config.yaml", "Config file path for the spawned roundtable server.")
 	flag.Parse()
 
 	config.LoadConfig(*configFilePath)
@@ -453,7 +453,7 @@ func main() {
 		})
 	}
 
-	const wsRetryAttempts = 10
+	const wsRetryAttempts = 25
 	const wsRetryDelay = 200 * time.Millisecond
 	var connectErr error
 	for i := 0; i < wsRetryAttempts; i++ {

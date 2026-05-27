@@ -40,15 +40,18 @@ jobs:
       - name: Build GUI
         run: go build -o gui ./cmd/gui
 
+      - name: Collect artifacts
+        run: |
+          mkdir -p dist
+          cp roundtable gui dist/
+          cp cmd/config.yaml dist/server_config.yaml
+          cp cmd/gui/config.yaml dist/gui_config.yaml
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: roundtable-linux
-          path: |
-            roundtable
-            gui
-            cmd/config.yaml
-            cmd/gui/config.yaml
+          path: dist/
 
   build-windows:
     runs-on: windows-latest
@@ -121,13 +124,17 @@ jobs:
         shell: msys2 {0}
         run: cp /mingw64/bin/libwinpthread-1.dll .
 
+      - name: Collect artifacts
+        shell: msys2 {0}
+        run: |
+          mkdir -p dist
+          cp roundtable.exe gui.exe dist/
+          cp cmd/config.yaml dist/server_config.yaml
+          cp cmd/gui/config.yaml dist/gui_config.yaml
+          cp libwinpthread-1.dll dist/
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: roundtable-windows
-          path: |
-            roundtable.exe
-            gui.exe
-            cmd/config.yaml
-            cmd/gui/config.yaml
-            libwinpthread-1.dll
+          path: dist/
