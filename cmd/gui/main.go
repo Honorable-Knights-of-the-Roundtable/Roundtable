@@ -278,7 +278,7 @@ func newMicTestBtn(state *AppState, client *WSClient) *widget.Button {
 func main() {
 	configFilePath := flag.String("configFilePath", "gui_config.yaml", "Set the file path to the GUI config file.")
 	serverAddr := flag.String("serverAddr", "ws://127.0.0.1:42069/ws", "WebSocket address of the roundtable backend.")
-	serverBin := flag.String("serverBin", "roundtable.exe", "Path to roundtable server binary to spawn (empty = connect to existing).")
+	serverBin := flag.String("serverBin", "./roundtable.exe", "Path to roundtable server binary to spawn (empty = connect to existing).")
 	serverConfigFilePath := flag.String("serverConfigFilePath", "server_config.yaml", "Config file path for the spawned roundtable server.")
 	flag.Parse()
 
