@@ -52,15 +52,15 @@ build:
 	go build -o bin/roundtable.exe ./cmd/roundtable && cp cmd/config.yaml bin && cp cmd/local_config.yaml bin && cp cmd/local_config_peer2.yaml bin
 
 build_gui:
-	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin
+	go build -o bin/gui.exe ./cmd/gui && cp cmd/gui/config.yaml bin/gui_config.yaml && cp cmd/config.yaml bin/server_config.yaml
 
 build_all: build build_gui
 
-run_gui: build_gui
-	cd bin && ./gui.exe
+run_gui: build_all
+	cd bin && ./gui.exe -configFilePath gui_config.yaml -serverBin ./roundtable.exe -serverConfigFilePath server_config.yaml
 
 run_gui_dev: build_all
-	cd bin && ./gui.exe -serverBin ./roundtable.exe -serverConfigFilePath local_config.yaml
+	cd bin && ./gui.exe -configFilePath gui_config.yaml -serverBin ./roundtable.exe -serverConfigFilePath local_config.yaml
 
 run_gui_peer: build_gui
 	cd bin && ./gui.exe -serverAddr ws://127.0.0.1:42070/ws

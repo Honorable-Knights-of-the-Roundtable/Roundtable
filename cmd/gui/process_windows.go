@@ -22,7 +22,7 @@ func postStart(cmd *exec.Cmd) (func(), error) {
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
-	err = windows.SetInformationJobObject(
+	_, err = windows.SetInformationJobObject(
 		job,
 		windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&info)),

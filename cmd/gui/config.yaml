@@ -1,5 +1,8 @@
 loglevel: "debug"
+logfile: "gui.log"
 
+# GUI process only needs a valid ICE server entry to satisfy config validation.
+# The roundtable server process uses server_config.yaml (copied from cmd/config.yaml)
+# which contains the full production settings including the fly.io signalling server.
 ICEServers:
-  - "TODO: This is just here for log validation"
-# logfile: "repl.log"
+  - "stun:stun.l.google.com:19302"

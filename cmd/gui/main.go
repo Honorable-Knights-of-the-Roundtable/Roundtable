@@ -63,7 +63,6 @@ func (c *WSClient) send(msgType string, data any) {
 	if err != nil {
 		slog.Error("failed to marshal in send", "err", err)
 	}
-	fmt.Printf("Marshaled %v\n", string(b))
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.conn.WriteJSON(ipc.Incoming{Type: msgType, Data: b})
@@ -239,9 +238,7 @@ func newOutputSelect(state *AppState, client *WSClient) *widget.Select {
 func newChannelGroup(client *WSClient) *widget.RadioGroup {
 	channelGroup := widget.NewRadioGroup([]string{"1", "2"},
 		func(s string) {
-			fmt.Printf("clicked with value %s\n", s)
 			channel, err := strconv.Atoi(s)
-			fmt.Printf("parsed value %d\n", channel)
 			if err != nil {
 				slog.Error("could not parse channelGroup option", "err", err)
 				return

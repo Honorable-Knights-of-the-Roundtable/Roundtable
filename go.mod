@@ -14,6 +14,7 @@ require (
 	github.com/pion/stun/v3 v3.0.0
 	github.com/pion/webrtc/v4 v4.1.5
 	github.com/spf13/viper v1.21.0
+	golang.org/x/sys v0.37.0
 )
 
 replace github.com/Honorable-Knights-of-the-Roundtable/opus => ./internal/opus
@@ -75,7 +76,6 @@ require (
 	golang.org/x/crypto v0.43.0 // indirect
 	golang.org/x/image v0.24.0 // indirect
 	golang.org/x/net v0.46.0 // indirect
-	golang.org/x/sys v0.37.0 // indirect
 	golang.org/x/text v0.30.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
